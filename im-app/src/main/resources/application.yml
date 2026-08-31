@@ -1,0 +1,64 @@
+server:
+  port: 8180
+  address: 0.0.0.0
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 200MB
+  datasource:
+    url: jdbc:mysql://localhost:3308/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6380
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: assign_id
+
+chat:
+  port: 9100
+  auto-authenticate: true
+  idle-timeout-seconds: 300
+  context: /
+  test-mode: false
+
+storage:
+  type: local
+  local:
+    base-path: ./uploads
+  minio:
+    endpoint: http://localhost:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    bucket: im-files
+
+hermes:
+  enabled: true
+  native-api: true
+  api-type: openai
+  base-url: http://localhost:8642/v1
+  api-key: fe2c6a612110c2cac9a3f7ab016481b9c3d8cda8e324adea77c5dd126a3ce613
+  model: hermes-agent
+  max-tokens: 4096
+  temperature: 0.7
+  session-timeout: 3600
+
+jwt:
+  secret: im-secret-key-for-jwt-token-generation-2024
+  expiration: 86400000
+  token-name: token
+
+logging:
+  level:
+    com.im: DEBUG
+    com.elaina: DEBUG

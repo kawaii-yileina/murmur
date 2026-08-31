@@ -1,0 +1,103 @@
+package com.im.core.chat.hook;
+
+import com.elaina.chat.core.persistence.MessagePersistentHook;
+import com.elaina.chat.core.message.ChatMessage;
+import com.im.core.conversation.service.ConversationService;
+import com.im.core.message.service.MessageService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Set;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class MessagePersistHook implements MessagePersistentHook {
+
+    private final MessageService messageService;
+    private final ConversationService conversationService;
+
+    private static final Set<String> SKIP_TYPES = Set.of("SYSTEM", "HEARTBEAT");
+
+    @Override
+    @Async
+    public void afterSend(ChatMessage msg, List<String> recipients, List<String> successList) {
+        try {
+            String type = msg.getType();
+            if (SKIP_TYPES.contains(type)) {
+                return;
+            }
+
+            Long senderId = parseLong(msg.getFrom());
+            Long receiverId = parseLong(msg.getTo());
+            if (senderId == null || receiverId == null) {
+                log.warn("Skipping persist for message with non-numeric ids: from={}, to={}", msg.getFrom(), msg.getTo());
+                return;
+            }
+
+            messageService.persistMessage(msg, successList);
+
+            int chatType = msg.isGroup() ? 1 : 0;
+            String lastMsgContent = truncateMessage(msg);
+
+            Long senderTargetId = receiverId;
+            Long recipientTargetId = msg.isGroup() ? senderTargetId : senderId;
+
+            for (String recipientId : successList) {
+                Long rid = parseLong(recipientId);
+                if (rid != null) {
+                    conversationService.updateConversation(rid, recipientTargetId, chatType, lastMsgContent);
+                }
+            }
+
+            conversationService.updateConversation(senderId, senderTargetId, chatType, lastMsgContent);
+
+        } catch (Exception e) {
+            log.error("Failed to persist message: {}", msg.getId(), e);
+        }
+    }
+
+    private Long parseLong(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String truncateMessage(ChatMessage msg) {
+        String content = msg.getContent();
+        String type = msg.getType();
+        if (content == null) return "";
+        return switch (type) {
+            case "IMAGE" -> "[图片]";
+            case "VIDEO" -> "[视频]";
+            case "VOICE" -> "[语音] " + Math.round(parseDuration(msg)) + "\"";
+            case "CONTACT_CARD" -> "[个人名片]";
+            case "FILE" -> {
+                String name = getHeader(msg, "originalName");
+                String text = "[文件] " + name;
+                yield text.length() > 50 ? text.substring(0, 50) + "..." : text;
+            }
+            default -> content.length() > 50 ? content.substring(0, 50) + "..." : content;
+        };
+    }
+
+    private String getHeader(ChatMessage msg, String key) {
+        if (msg.getHeaders() == null) return "";
+        Object value = msg.getHeaders().get(key);
+        return value != null ? String.valueOf(value) : "";
+    }
+
+    private double parseDuration(ChatMessage msg) {
+        try {
+            return Double.parseDouble(getHeader(msg, "duration"));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+}
