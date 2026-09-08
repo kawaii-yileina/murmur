@@ -3,11 +3,14 @@ package com.im.hermes.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.im.common.exception.BizException;
 import com.im.hermes.client.HermesClient;
 import com.im.hermes.client.HermesNativeClient;
 import com.im.hermes.client.HermesProperties;
 import com.im.hermes.model.AiConversation;
 import com.im.hermes.model.AiConversationMapper;
+import com.im.hermes.model.AiSessionMeta;
+import com.im.hermes.model.AiSessionMetaMapper;
 import com.im.hermes.model.HermesMessage;
 import com.im.hermes.model.HermesRequest;
 import com.im.hermes.model.HermesResponse;
@@ -21,6 +24,7 @@ import reactor.core.publisher.Flux;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Hermes AI 服务层
@@ -46,6 +50,7 @@ public class HermesService {
     private final HermesNativeClient hermesNativeClient;
     private final HermesProperties hermesProperties;
     private final AiConversationMapper aiConversationMapper;
+    private final AiSessionMetaMapper aiSessionMetaMapper;
     private final UserAiConfigMapper userAiConfigMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -98,12 +103,14 @@ public class HermesService {
         }
 
         Object nativeMessage = buildNativeMessage(userMessage);
+        String systemMessage = getSessionSystemPrompt(userId, sessionId);
 
         StringBuilder accumulated = new StringBuilder();
         StringBuilder completed = new StringBuilder();
 
         return hermesNativeClient.chatStream(
-                        sessionId, nativeMessage, cfg.baseUrl(), cfg.apiKey(), cfg.model(), null)
+                        sessionId, nativeMessage, cfg.baseUrl(), cfg.apiKey(), cfg.model(), null,
+                        systemMessage)
                 .doOnNext(json -> {
                     JsonNode node = readTree(json);
                     if (node == null) return;
@@ -166,14 +173,32 @@ public class HermesService {
 
     // ─── 会话管理 ───
 
-    public List<String> getSessions(String userId) {
+    /**
+     * 会话列表：sessionId + 标题。标题取自 t_ai_session_meta，
+     * 无元数据的隐式会话（如默认 ai_{userId}）标题为 null，由前端回退展示。
+     */
+    public List<Map<String, Object>> getSessions(String userId) {
         List<AiConversation> conversations = aiConversationMapper.findByUserId(
             Long.parseLong(userId)
         );
+        List<AiSessionMeta> metas = aiSessionMetaMapper.selectList(
+            new LambdaQueryWrapper<AiSessionMeta>()
+                .eq(AiSessionMeta::getUserId, Long.parseLong(userId))
+        );
+        Map<String, String> titleBySession = metas.stream()
+            .filter(m -> m.getTitle() != null && !m.getTitle().isBlank())
+            .collect(java.util.stream.Collectors.toMap(
+                AiSessionMeta::getSessionId, AiSessionMeta::getTitle, (a, b) -> a));
         return conversations.stream()
             .map(AiConversation::getSessionId)
             .distinct()
             .sorted()
+            .map(sid -> {
+                Map<String, Object> item = new java.util.HashMap<>();
+                item.put("sessionId", sid);
+                item.put("title", titleBySession.get(sid));
+                return item;
+            })
             .toList();
     }
 
@@ -187,7 +212,56 @@ public class HermesService {
             ConnectionConfig cfg = resolveConnection(userId);
             hermesNativeClient.deleteSession(sessionId, cfg.baseUrl(), cfg.apiKey());
         }
+        aiSessionMetaMapper.delete(
+            new LambdaQueryWrapper<AiSessionMeta>()
+                .eq(AiSessionMeta::getSessionId, sessionId)
+        );
         log.info("Cleared AI session {} for user {}", sessionId, userId);
+    }
+
+    // ─── 会话元数据（标题、系统提示词等）───
+
+    /**
+     * 保存会话元数据（创建会话时调用）。标题用于会话列表/聊天页展示，
+     * 系统提示词供每次对话请求作为 system_message 显式传给 Hermes。
+     */
+    public void saveSessionMeta(String userId, String sessionId, String title, String systemPrompt) {
+        try {
+            AiSessionMeta existing = aiSessionMetaMapper.selectOne(
+                new LambdaQueryWrapper<AiSessionMeta>()
+                    .eq(AiSessionMeta::getSessionId, sessionId)
+            );
+            if (existing != null) {
+                if (title != null) existing.setTitle(title);
+                if (systemPrompt != null) existing.setSystemPrompt(systemPrompt);
+                aiSessionMetaMapper.updateById(existing);
+            } else {
+                AiSessionMeta meta = new AiSessionMeta();
+                meta.setUserId(Long.parseLong(userId));
+                meta.setSessionId(sessionId);
+                meta.setTitle(title);
+                meta.setSystemPrompt(systemPrompt);
+                meta.setCreatedAt(LocalDateTime.now());
+                aiSessionMetaMapper.insert(meta);
+            }
+        } catch (Exception e) {
+            log.error("Failed to save session meta for session {}", sessionId, e);
+        }
+    }
+
+    /** 读取该会话的系统提示词，无则返回 null */
+    public String getSessionSystemPrompt(String userId, String sessionId) {
+        try {
+            AiSessionMeta meta = aiSessionMetaMapper.selectOne(
+                new LambdaQueryWrapper<AiSessionMeta>()
+                    .eq(AiSessionMeta::getUserId, Long.parseLong(userId))
+                    .eq(AiSessionMeta::getSessionId, sessionId)
+            );
+            return meta != null ? meta.getSystemPrompt() : null;
+        } catch (Exception e) {
+            log.error("Failed to load session system prompt for session {}", sessionId, e);
+            return null;
+        }
     }
 
     /**
@@ -208,6 +282,82 @@ public class HermesService {
         aiConversationMapper.deleteBatchIds(idsToDelete);
         log.info("Truncated session {} for user {}: kept {}, removed {}",
                 sessionId, userId, keepCount, idsToDelete.size());
+    }
+
+    /**
+     * 编辑 AI（assistant）消息内容。
+     *
+     * Hermes 侧与 MySQL 侧是两套独立 id 空间，映射方式：
+     * 按"该会话第 n 条 assistant 消息"序号对应（两侧同源时序一致）。
+     * PATCH 前校验 Hermes 侧该条消息的 content 与 MySQL 副本一致，
+     * 不一致说明两侧上下文已脱节（如编辑重发后 Hermes 无法截断），拒绝编辑。
+     */
+    public void editSessionMessage(String userId, String sessionId, long messageId, String newContent) {
+        AiConversation row = aiConversationMapper.selectById(messageId);
+        if (row == null || Long.parseLong(userId) != row.getUserId()
+                || !sessionId.equals(row.getSessionId())) {
+            throw new BizException("消息不存在");
+        }
+        if (!"assistant".equals(row.getRole())) {
+            throw new BizException("仅支持编辑 AI 回复消息");
+        }
+        if (!hermesProperties.isNativeApi()) {
+            // 降级模式无 Hermes 上下文，只更新展示副本
+            row.setContent(newContent);
+            aiConversationMapper.updateById(row);
+            return;
+        }
+
+        // 计算该消息在 assistant 序列中的序号
+        List<AiConversation> assistantRows = aiConversationMapper.selectList(
+            new LambdaQueryWrapper<AiConversation>()
+                .eq(AiConversation::getUserId, Long.parseLong(userId))
+                .eq(AiConversation::getSessionId, sessionId)
+                .eq(AiConversation::getRole, "assistant")
+                .orderByAsc(AiConversation::getCreatedAt)
+                .orderByAsc(AiConversation::getId)
+        );
+        int ordinal = -1;
+        for (int i = 0; i < assistantRows.size(); i++) {
+            if (assistantRows.get(i).getId().longValue() == messageId) {
+                ordinal = i;
+                break;
+            }
+        }
+        if (ordinal < 0) {
+            throw new BizException("消息不存在");
+        }
+
+        ConnectionConfig cfg = resolveConnection(userId);
+        JsonNode hermesMessages = hermesNativeClient.getMessagesOldest(sessionId, cfg.baseUrl(), cfg.apiKey());
+        List<JsonNode> hermesAssistant = new ArrayList<>();
+        for (JsonNode node : hermesMessages) {
+            if ("assistant".equals(node.path("role").asText())) {
+                hermesAssistant.add(node);
+            }
+        }
+        if (ordinal >= hermesAssistant.size()) {
+            throw new BizException("AI 会话上下文已不同步，无法编辑，请改用重新生成");
+        }
+        JsonNode hermesMsg = hermesAssistant.get(ordinal);
+        String hermesContent = hermesMsg.path("content").asText("");
+        if (!hermesContent.equals(row.getContent())) {
+            throw new BizException("AI 会话上下文已不同步，无法编辑，请改用重新生成");
+        }
+
+        long hermesMessageId = hermesMsg.path("id").asLong(-1);
+        if (hermesMessageId < 0) {
+            throw new BizException("AI 会话上下文已不同步，无法编辑，请改用重新生成");
+        }
+        boolean patched = hermesNativeClient.patchMessage(
+                sessionId, hermesMessageId, newContent, cfg.baseUrl(), cfg.apiKey());
+        if (!patched) {
+            throw new BizException("AI 会话上下文已不同步，无法编辑，请改用重新生成");
+        }
+
+        row.setContent(newContent);
+        aiConversationMapper.updateById(row);
+        log.info("Edited AI message {} in session {} for user {}", messageId, sessionId, userId);
     }
 
     // ─── 配置 ───

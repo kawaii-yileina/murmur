@@ -63,9 +63,35 @@ public class HermesController {
     // ─── 会话管理 ───
 
     @GetMapping("/sessions")
-    public Result<List<String>> getSessions(@RequestAttribute("userId") String userId) {
-        List<String> sessions = hermesService.getSessions(userId);
-        return Result.ok(sessions);
+    public Result<List<Map<String, Object>>> getSessions(@RequestAttribute("userId") String userId) {
+        return Result.ok(hermesService.getSessions(userId));
+    }
+
+    /**
+     * 会话详情（转发 Hermes GET /api/sessions/{id}）：
+     * 前端用于回显当前锁定的模型与会话标题。
+     */
+    @GetMapping("/sessions/{sessionId}/detail")
+    public Result<Map<String, Object>> getSessionDetail(
+            @RequestAttribute("userId") String userId,
+            @PathVariable String sessionId) {
+        if (!hermesProperties.isNativeApi()) {
+            return Result.ok(Map.of());
+        }
+        UserAiConfig config = hermesService.getUserConfig(userId);
+        String baseUrl = config != null && config.getBaseUrl() != null
+                ? config.getBaseUrl() : hermesProperties.getBaseUrl();
+        String apiKey = config != null && config.getApiKey() != null
+                ? config.getApiKey() : hermesProperties.getApiKey();
+        JsonNode session = hermesNativeClient.getSessionDetail(sessionId, baseUrl, apiKey);
+        if (session == null || session.isMissingNode() || session.isNull()) {
+            return Result.ok(Map.of());
+        }
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("model", session.path("model").asText(null));
+        data.put("title", session.path("title").asText(null));
+        return Result.ok(data);
     }
 
     @GetMapping("/sessions/{sessionId}/history")
@@ -120,6 +146,27 @@ public class HermesController {
                 ? config.getApiKey() : hermesProperties.getApiKey();
         hermesNativeClient.createSession(sessionId, request.get("title"),
                 request.get("systemPrompt"), request.get("model"), baseUrl, apiKey);
+        // 标题 + 系统提示词落库：标题用于会话列表/聊天页展示；系统提示词
+        // 因 Hermes 侧首条消息（conversation_history 为空时）不会从会话行加载，
+        // 需要每次对话以 system_message 显式传入
+        hermesService.saveSessionMeta(userId, sessionId, request.get("title"), request.get("systemPrompt"));
+        return Result.ok();
+    }
+
+    /**
+     * 编辑 AI（assistant）消息内容（覆盖 MySQL 展示副本与 Hermes 侧上下文）。
+     * messageId 为 MySQL 侧 id，服务端负责映射到 Hermes 侧消息并校验一致性。
+     */
+    @PatchMapping("/sessions/{sessionId}/messages/{messageId}")
+    public Result<Void> editMessage(@RequestAttribute("userId") String userId,
+                                    @PathVariable String sessionId,
+                                    @PathVariable long messageId,
+                                    @RequestBody Map<String, String> request) {
+        String content = request.get("content");
+        if (content == null || content.isBlank()) {
+            return Result.error("消息内容不能为空");
+        }
+        hermesService.editSessionMessage(userId, sessionId, messageId, content);
         return Result.ok();
     }
 
@@ -153,24 +200,42 @@ public class HermesController {
         return Result.ok(result);
     }
 
-    /** 防御性解析 /api/model/options 目录：models 字段兼容对象/字符串两种形态 */
+    /**
+     * 防御性解析 /api/model/options 目录。
+     * 实际结构（经实测确认）：顶层 providers 数组，每个 provider 的 models 字段
+     * 为空格分隔的模型名字符串（如 "mimo-v2.5 mimo-v2.5-pro"），provider.slug 即渠道。
+     * 兼容 models 为数组/对象的历史形态。
+     */
     private List<Map<String, Object>> extractModelsFromCatalog(JsonNode catalog) {
         List<Map<String, Object>> result = new ArrayList<>();
         if (catalog == null) return result;
 
-        JsonNode modelsNode = catalog.path("models");
-        if (!modelsNode.isArray()) return result;
+        JsonNode providers = catalog.path("providers");
+        if (!providers.isArray()) return result;
 
-        for (JsonNode entry : modelsNode) {
-            if (entry.isTextual()) {
-                addModelEntry(result, entry.asText(), null);
-            } else if (entry.isObject()) {
-                String id = entry.path("id").asText(
-                        entry.path("model").asText(entry.path("name").asText("")));
-                String provider = entry.path("provider").asText(
-                        entry.path("provider_id").asText(""));
-                if (id.isBlank()) continue;
-                addModelEntry(result, id, provider.isBlank() ? null : provider);
+        for (JsonNode provider : providers) {
+            String providerId = provider.path("slug").asText("");
+            JsonNode modelsNode = provider.path("models");
+
+            List<String> modelIds = new ArrayList<>();
+            if (modelsNode.isTextual()) {
+                for (String id : modelsNode.asText().split("\\s+")) {
+                    if (!id.isBlank()) modelIds.add(id);
+                }
+            } else if (modelsNode.isArray()) {
+                for (JsonNode m : modelsNode) {
+                    if (m.isTextual()) {
+                        modelIds.add(m.asText());
+                    } else if (m.isObject()) {
+                        modelIds.add(m.path("id").asText(m.path("model").asText(m.path("name").asText(""))));
+                    }
+                }
+            } else if (modelsNode.isObject()) {
+                modelsNode.fieldNames().forEachRemaining(modelIds::add);
+            }
+
+            for (String id : modelIds) {
+                addModelEntry(result, id, providerId.isBlank() ? null : providerId);
             }
         }
         return result;
@@ -189,7 +254,7 @@ public class HermesController {
     @PostMapping("/sessions/{sessionId}/model")
     public Result<Void> lockModel(@RequestAttribute("userId") String userId,
                                   @PathVariable String sessionId,
-                                  @RequestBody Map<String, String> request) {
+                                  @RequestBody Map<String, Object> request) {
         if (!hermesProperties.isNativeApi()) {
             return Result.error("当前为兼容模式，不支持会话模型锁定");
         }
@@ -198,7 +263,12 @@ public class HermesController {
                 ? config.getBaseUrl() : hermesProperties.getBaseUrl();
         String apiKey = config != null && config.getApiKey() != null
                 ? config.getApiKey() : hermesProperties.getApiKey();
-        hermesNativeClient.lockModel(sessionId, request.get("model"), request.get("provider"), baseUrl, apiKey);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> modelOptions =
+                request.get("modelOptions") instanceof Map ? (Map<String, Object>) request.get("modelOptions") : null;
+        hermesNativeClient.lockModel(sessionId,
+                (String) request.get("model"), (String) request.get("provider"),
+                modelOptions, baseUrl, apiKey);
         return Result.ok();
     }
 
