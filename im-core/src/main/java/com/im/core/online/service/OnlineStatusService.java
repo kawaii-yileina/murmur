@@ -1,5 +1,7 @@
 package com.im.core.online.service;
 
+import com.im.core.cluster.config.ClusterProperties;
+import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +19,8 @@ public class OnlineStatusService {
 
     private final StringRedisTemplate redisTemplate;
     private final UserService userService;
+    private final RouteRegistry routeRegistry;
+    private final ClusterProperties clusterProperties;
 
     private static final String ONLINE_KEY_PREFIX = "im:online:";
     private static final long TTL_SECONDS = 60;
@@ -36,6 +40,10 @@ public class OnlineStatusService {
     }
 
     public boolean isOnline(String userId) {
+        // 集群模式下以连接路由表为在线真值（可感知连接在其他节点的用户）
+        if (clusterProperties.isEnabled()) {
+            return routeRegistry.isOnline(userId);
+        }
         return redisTemplate.hasKey(ONLINE_KEY_PREFIX + userId);
     }
 

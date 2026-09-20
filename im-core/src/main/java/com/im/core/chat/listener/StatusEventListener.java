@@ -6,6 +6,8 @@ import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.gateway.MessageGateway;
 import com.elaina.chat.core.registry.UserConnectionRegistry;
 import com.im.common.utils.JwtUtils;
+import com.im.core.cluster.config.ClusterProperties;
+import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.message.service.OfflineMessageService;
 import com.im.core.online.service.OnlineStatusService;
 import com.im.core.user.service.UserService;
@@ -26,6 +28,8 @@ public class StatusEventListener implements ChatEventListener {
     private final UserConnectionRegistry connectionRegistry;
     private final MessageGateway messageGateway;
     private final UserService userService;
+    private final RouteRegistry routeRegistry;
+    private final ClusterProperties clusterProperties;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -42,6 +46,7 @@ public class StatusEventListener implements ChatEventListener {
     public void onAuthenticated(String userId, Connection connection) {
         log.info("User authenticated: {}", userId);
         onlineStatusService.userOnline(userId);
+        registerRoute(userId, connection);
         notifyFriends(userId, "online:" + userId);
         sendOfflineMessages(userId);
     }
@@ -53,12 +58,48 @@ public class StatusEventListener implements ChatEventListener {
             String userId = JwtUtils.getUserIdFromToken(token, jwtSecret);
             if (userId != null) {
                 log.info("User disconnected: {}", userId);
+                unregisterRoute(userId, connection);
                 onlineStatusService.userOffline(userId);
                 notifyFriends(userId, "offline:" + userId);
             }
         } catch (Exception e) {
             log.warn("Failed to handle connection close: {}", e.getMessage());
         }
+    }
+
+    /** 集群模式下登记连接路由（未开启集群时为空操作，保持单机行为不变） */
+    private void registerRoute(String userId, Connection connection) {
+        if (!clusterProperties.isEnabled()) {
+            return;
+        }
+        try {
+            routeRegistry.register(userId, resolveDeviceId(connection), connection.id(), resolvePlatform(connection));
+        } catch (Exception e) {
+            log.error("Failed to register route for user {}", userId, e);
+        }
+    }
+
+    /** 集群模式下移除连接路由 */
+    private void unregisterRoute(String userId, Connection connection) {
+        if (!clusterProperties.isEnabled()) {
+            return;
+        }
+        try {
+            routeRegistry.unregister(userId, resolveDeviceId(connection));
+        } catch (Exception e) {
+            log.error("Failed to unregister route for user {}", userId, e);
+        }
+    }
+
+    /** 设备标识：优先取连接属性 deviceId，缺省 default（多端能力在后续批次接入真实 deviceId） */
+    private String resolveDeviceId(Connection connection) {
+        Object value = connection.attributes().get("deviceId");
+        return value != null && !value.toString().isBlank() ? value.toString() : RouteRegistry.DEFAULT_DEVICE_ID;
+    }
+
+    private String resolvePlatform(Connection connection) {
+        Object value = connection.attributes().get("platform");
+        return value != null ? value.toString() : "unknown";
     }
 
     private void notifyFriends(String userId, String content) {

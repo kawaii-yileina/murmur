@@ -29,4 +29,10 @@ public class ClusterProperties {
 
     /** 默认设备类型（当前客户端为手机端） */
     private String defaultDeviceType = "mobile";
+
+    /** 节点存活标记 TTL（秒） */
+    private long nodeTtlSeconds = 30;
+
+    /** 节点心跳间隔（毫秒） */
+    private long nodeHeartbeatMillis = 10000;
 }
