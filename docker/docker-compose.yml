@@ -61,8 +61,6 @@ services:
       JAVA_OPT_EXT: "-server -Xms256m -Xmx512m"
     ports:
       - "9876:9876"
-    volumes:
-      - im-rmq-namesrv-logs:/home/rocketmq/logs
 
   rmqbroker:
     image: apache/rocketmq:5.3.1
@@ -77,14 +75,11 @@ services:
       - "10911:10911"
       - "10912:10912"
     volumes:
+      # 注意：apache/rocketmq 镜像以 rocketmq(3000) 运行，命名卷默认 root 所有会导致其无法写日志/store
+      # 从而 broker initialize() 失败退出，故此处不挂载日志/store 卷（容器内目录本身可写）
       - ./rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
-      - im-rmq-broker-logs:/home/rocketmq/logs
-      - im-rmq-broker-store:/home/rocketmq/store
 
 volumes:
   im-mysql-data:
   im-redis-data:
   im-nacos-data:
-  im-rmq-namesrv-logs:
-  im-rmq-broker-logs:
-  im-rmq-broker-store:
