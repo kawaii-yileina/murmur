@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.io.ByteArrayInputStream;
+import java.io.OutputStream;
 
 @Slf4j
 @Component
@@ -42,13 +43,12 @@ public class MinioStorage implements FileStorage {
     }
 
     @Override
-    public byte[] download(String fileKey) {
-        try {
-            GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
-                    .bucket(minioProperties.getBucket())
-                    .object(fileKey)
-                    .build());
-            return response.readAllBytes();
+    public void download(String fileKey, OutputStream out) {
+        try (GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(minioProperties.getBucket())
+                .object(fileKey)
+                .build())) {
+            response.transferTo(out);
         } catch (Exception e) {
             throw new RuntimeException("Failed to download file", e);
         }

@@ -2,31 +2,137 @@ package com.im.core.message.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.elaina.chat.core.message.ChatMessage;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.im.common.constant.ChatConstants;
+import com.im.common.enums.MessageType;
+import com.im.common.exception.BizException;
+import com.im.core.conversation.service.ConversationService;
 import com.im.core.message.entity.Message;
+import com.im.core.message.event.MessageRecalledEvent;
 import com.im.core.message.mapper.MessageMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MessageService {
 
     private final MessageMapper messageMapper;
+    private final ConversationService conversationService;
+    private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
+
+    /** 撤回时限（分钟） */
+    private static final int RECALL_TIMEOUT_MINUTES = 2;
+
+    /**
+     * 不落库的 header 键：内部关联与 ACK 回执字段，以及已有独立列的 replyTo / mentions。
+     */
+    private static final Set<String> NON_PERSISTED_HEADER_KEYS = Set.of(
+            ChatConstants.HEADER_CLIENT_MSG_ID,
+            ChatConstants.HEADER_ACK,
+            ChatConstants.HEADER_SERVER_MSG_ID,
+            ChatConstants.HEADER_DELIVERED,
+            ChatConstants.HEADER_REPLY_TO,
+            ChatConstants.HEADER_MENTIONS);
 
     public void persistMessage(ChatMessage chatMessage, List<String> recipients) {
         Message msg = new Message();
-        msg.setMsgId(UUID.randomUUID().toString());
+        String msgId = chatMessage.getId();
+        msg.setMsgId(msgId != null && !msgId.isBlank() ? msgId : UUID.randomUUID().toString());
         msg.setSenderId(Long.parseLong(chatMessage.getFrom()));
         msg.setReceiverId(Long.parseLong(chatMessage.getTo()));
         msg.setChatType(chatMessage.isGroup() ? 1 : 0);
         msg.setMsgType(chatMessage.getType());
         msg.setContent(chatMessage.getContent());
+        msg.setReplyTo(resolveReplyTo(chatMessage));
+        msg.setMentions(resolveMentions(chatMessage));
+        msg.setHeaders(resolveHeaders(chatMessage));
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
+    }
+
+    /**
+     * 展示型 headers 透传落库（剔除内部字段与已有独立列的键）。
+     * 历史消息不带 headers 会导致语音时长、文件名等丢失（引用/转发/会话预览显示为 0 或空）。
+     */
+    private String resolveHeaders(ChatMessage chatMessage) {
+        Map<String, Object> headers = chatMessage.getHeaders();
+        if (headers == null || headers.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> display = new LinkedHashMap<>();
+        headers.forEach((key, value) -> {
+            if (value != null && !NON_PERSISTED_HEADER_KEYS.contains(key)) {
+                display.put(key, value);
+            }
+        });
+        if (display.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(display);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize headers for message {}", chatMessage.getId(), e);
+            return null;
+        }
+    }
+
+    /** 引用回复信息由发送端放在 headers.replyTo（JSON 字符串），透传落库 */
+    private String resolveReplyTo(ChatMessage chatMessage) {
+        if (chatMessage.getHeaders() == null) return null;
+        Object replyTo = chatMessage.getHeaders().get(ChatConstants.HEADER_REPLY_TO);
+        return replyTo != null ? String.valueOf(replyTo) : null;
+    }
+
+    /** @提及信息由发送端放在 headers.mentions（JSON 数组字符串），透传落库 */
+    private String resolveMentions(ChatMessage chatMessage) {
+        if (chatMessage.getHeaders() == null) return null;
+        Object mentions = chatMessage.getHeaders().get(ChatConstants.HEADER_MENTIONS);
+        return mentions != null ? String.valueOf(mentions) : null;
+    }
+
+    /**
+     * 撤回消息：仅本人、发送后 2 分钟内、未撤回过的消息可撤回。
+     * 撤回后 msg_type 置为 RECALL 并清空内容，同时向会话内其他成员推送
+     * SYSTEM 事件（message_recall:msgId），前端据此替换气泡文案。
+     */
+    public Message recallMessage(Long userId, String msgId) {
+        Message msg = messageMapper.selectOne(
+            new LambdaQueryWrapper<Message>().eq(Message::getMsgId, msgId)
+        );
+        if (msg == null) {
+            throw new BizException("消息不存在");
+        }
+        if (!msg.getSenderId().equals(userId)) {
+            throw new BizException("只能撤回自己发送的消息");
+        }
+        if (MessageType.RECALL.getType().equals(msg.getMsgType())) {
+            return msg;
+        }
+        if (msg.getCreatedAt() == null
+                || msg.getCreatedAt().isBefore(LocalDateTime.now().minusMinutes(RECALL_TIMEOUT_MINUTES))) {
+            throw new BizException("超过 " + RECALL_TIMEOUT_MINUTES + " 分钟的消息不能撤回");
+        }
+
+        msg.setMsgType(MessageType.RECALL.getType());
+        msg.setContent("");
+        messageMapper.updateById(msg);
+
+        conversationService.markRecalled(msg.getMsgId(), msg.getSenderId());
+        eventPublisher.publishEvent(new MessageRecalledEvent(msg, userId));
+        return msg;
     }
 
     public List<Message> getHistory(Long userId, Long targetId, int chatType, int page, int size) {

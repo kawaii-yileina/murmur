@@ -10,7 +10,8 @@ public enum MessageType {
     IMAGE("IMAGE", "图片"),
     VIDEO("VIDEO", "视频"),
     FILE("FILE", "文件"),
-    VOICE("VOICE", "语音");
+    VOICE("VOICE", "语音"),
+    RECALL("RECALL", "撤回");
 
     private final String type;
     private final String desc;

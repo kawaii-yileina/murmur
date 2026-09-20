@@ -1,6 +1,10 @@
 package com.im.core.friend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.elaina.chat.core.message.ChatMessage;
+import com.elaina.chat.core.gateway.MessageGateway;
+import com.im.common.constant.ChatConstants;
+import com.im.common.enums.SystemEvent;
 import com.im.common.exception.BizException;
 import com.im.core.friend.entity.Friend;
 import com.im.core.friend.entity.FriendRequest;
@@ -9,11 +13,13 @@ import com.im.core.friend.mapper.FriendRequestMapper;
 import com.im.core.user.entity.User;
 import com.im.core.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FriendRequestService {
@@ -21,6 +27,7 @@ public class FriendRequestService {
     private final FriendRequestMapper friendRequestMapper;
     private final FriendMapper friendMapper;
     private final UserService userService;
+    private final MessageGateway messageGateway;
 
     public FriendRequest sendRequest(Long fromId, Long toId) {
         if (fromId.equals(toId)) {
@@ -52,6 +59,9 @@ public class FriendRequestService {
         request.setToId(toId);
         request.setStatus(0);
         friendRequestMapper.insert(request);
+
+        sendSystemNotification(String.valueOf(toId), SystemEvent.FRIEND_REQUEST, String.valueOf(fromId));
+
         return request;
     }
 
@@ -90,6 +100,12 @@ public class FriendRequestService {
 
         request.setStatus(1);
         friendRequestMapper.updateById(request);
+
+        // 通知申请人：申请已通过
+        sendSystemNotification(String.valueOf(request.getFromId()), SystemEvent.FRIEND_ACCEPT, String.valueOf(userId));
+        // 通知接受方：好友关系已建立。接受方自身的好友列表不含新好友，
+        // 需同样收到事件以触发前端刷新，否则会显示"未知用户"。
+        sendSystemNotification(String.valueOf(request.getToId()), SystemEvent.FRIEND_ACCEPT, String.valueOf(request.getFromId()));
     }
 
     @Transactional
@@ -107,6 +123,8 @@ public class FriendRequestService {
 
         request.setStatus(2);
         friendRequestMapper.updateById(request);
+
+        sendSystemNotification(String.valueOf(request.getFromId()), SystemEvent.FRIEND_REJECT, String.valueOf(userId));
     }
 
     public User getCounterparty(FriendRequest request, Long userId) {
@@ -140,6 +158,21 @@ public class FriendRequestService {
             f2.setUserId(b);
             f2.setFriendId(a);
             friendMapper.insert(f2);
+        }
+    }
+
+    private void sendSystemNotification(String targetUserId, SystemEvent event, String... args) {
+        try {
+            ChatMessage msg = ChatMessage.builder()
+                    .type(ChatConstants.SYSTEM_USER)
+                    .from(ChatConstants.SYSTEM_USER)
+                    .to(targetUserId)
+                    .group(false)
+                    .content(event.format(args))
+                    .build();
+            messageGateway.sendToUser(targetUserId, msg, false);
+        } catch (Exception e) {
+            log.error("Failed to send {} notification to {}: {}", event.getType(), targetUserId, e.getMessage());
         }
     }
 }

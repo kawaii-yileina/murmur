@@ -1,0 +1,15 @@
+# Build output
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Runtime data
+uploads/
+logs/
+*.log

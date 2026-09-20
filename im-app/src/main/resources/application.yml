@@ -16,6 +16,22 @@ spring:
     redis:
       host: localhost
       port: 6380
+  mail:
+    # 邮件服务：通过环境变量注入，未配置时验证码接口返回“邮件服务未配置”
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 mybatis-plus:
   configuration:
@@ -53,9 +69,20 @@ hermes:
   temperature: 0.7
   session-timeout: 3600
 
+im:
+  rate-limit:
+    # 用户级发送限流：1 秒窗口内允许的最大消息条数（<=0 关闭）
+    messages-per-second: 5
+  mail:
+    # 邮件验证码开关；需同时配置 spring.mail.* 才能发送
+    enabled: ${MAIL_ENABLED:false}
+
 jwt:
-  secret: im-secret-key-for-jwt-token-generation-2024
-  expiration: 86400000
+  # 必须通过环境变量 JWT_SECRET 注入（>=32 字节），不得写入配置文件,开发环境可以写入配置文件
+  secret: ${JWT_SECRET:im-secret-key-for-jwt-token-generation-2024}
+  expiration: 7200000            # access token 有效期：2 小时（毫秒）
+  refresh-expiration: 2592000000 # refresh token 有效期：30 天
+  refresh-grace: 60000           # 轮换后旧 refresh token 的宽限期：60s（容忍并发刷新/响应丢失）
   token-name: token
 
 logging:

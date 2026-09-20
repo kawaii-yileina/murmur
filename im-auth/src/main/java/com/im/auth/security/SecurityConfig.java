@@ -1,6 +1,8 @@
 package com.im.auth.security;
 
 import com.elaina.chat.bootstrap.ChatServerLifecycle;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.annotation.Bean;
@@ -36,16 +38,29 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // 只对初始请求（REQUEST dispatch）鉴权。
+                // 只对初始请求（REQUEST dispatch）鉴权：
                 // 流式接口（SSE/Flux）结束时容器会做 ASYNC/ERROR dispatch，
                 // 若对这些分发再次鉴权，会因响应已提交而抛
                 // "Unable to handle the Spring Security Exception" 错误。
-                .shouldFilterAllDispatcherTypes(false)
-                .requestMatchers("/api/auth/**").permitAll()
+                .dispatcherTypeMatchers(
+                    DispatcherType.ASYNC, DispatcherType.ERROR,
+                    DispatcherType.FORWARD, DispatcherType.INCLUDE).permitAll()
+                .requestMatchers(
+                    "/api/auth/login",
+                    "/api/auth/login/code",
+                    "/api/auth/register",
+                    "/api/auth/refresh",
+                    "/api/auth/send-code",
+                    "/api/auth/reset-password",
+                    "/api/auth/logout"
+                ).permitAll()
                 .requestMatchers("/api/files/local/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated()
             )
+            // 未认证返回 401（默认是 403），前端静默续期依赖 401 触发
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(
+                (request, response, authException) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

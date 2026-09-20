@@ -38,6 +38,19 @@ public class MessageController {
         return Result.ok(conversationService.getConversations(Long.parseLong(userId)));
     }
 
+    /**
+     * 撤回消息（仅本人、2 分钟内），撤回后向会话内其他成员推送 SYSTEM 事件。
+     */
+    @PostMapping("/recall")
+    public Result<Message> recallMessage(@RequestAttribute("userId") String userId,
+                                      @RequestBody RecallRequest request) {
+        if (request.getMsgId() == null || request.getMsgId().isBlank()) {
+            return Result.error("msgId 不能为空");
+        }
+        ;
+        return Result.ok(messageService.recallMessage(Long.parseLong(userId), request.getMsgId()));
+    }
+
     @PutMapping("/conversations/read")
     public Result<Void> markAsRead(@RequestAttribute("userId") String userId,
                                    @RequestBody ReadRequest request) {
@@ -89,5 +102,10 @@ public class MessageController {
     public static class ReadRequest {
         private Long targetId;
         private Integer chatType;
+    }
+
+    @Data
+    public static class RecallRequest {
+        private String msgId;
     }
 }

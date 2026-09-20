@@ -14,7 +14,10 @@ public class Conversation {
     private Long targetId;
     private Integer chatType;
     private String lastMsgContent;
+    private String lastMsgId;
     private LocalDateTime lastMsgTime;
     private Integer unreadCount;
+    /** 是否有人 @ 我（进入会话已读后清除） */
+    private Integer mentioned;
     private LocalDateTime updatedAt;
 }

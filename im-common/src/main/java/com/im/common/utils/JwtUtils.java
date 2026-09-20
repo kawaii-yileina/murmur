@@ -13,16 +13,36 @@ public class JwtUtils {
     private JwtUtils() {}
 
     public static String generateToken(String userId, String secret, long expirationMs) {
+        return generateToken(userId, secret, expirationMs, 0);
+    }
+
+    /**
+     * 生成 access token，携带 token 版本号（ver）。
+     * 改密/注销后版本递增，旧版本 token 即失效，实现全端即时登出。
+     */
+    public static String generateToken(String userId, String secret, long expirationMs, int version) {
         SecretKey key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
                 .subject(userId)
+                .claim("ver", version)
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(key)
                 .compact();
+    }
+
+    /** 读取 token 版本号；无 ver 声明（旧 token）返回 0；解析失败返回 null */
+    public static Integer getVersion(String token, String secret) {
+        try {
+            Claims claims = parseToken(token, secret);
+            Number version = claims.get("ver", Number.class);
+            return version != null ? version.intValue() : 0;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public static Claims parseToken(String token, String secret) {

@@ -35,7 +35,8 @@ public class ContactController {
                     "username", f.getUsername() != null ? f.getUsername() : "",
                     "nickname", f.getNickname() != null ? f.getNickname() : "",
                     "avatar", f.getAvatar() != null ? f.getAvatar() : "",
-                    "signature", f.getSignature() != null ? f.getSignature() : ""
+                    "signature", f.getSignature() != null ? f.getSignature() : "",
+                    "deleted", f.getDeleted() != null && f.getDeleted() == 1
                 ))
                 .toList();
         return Result.ok(result);
@@ -44,7 +45,7 @@ public class ContactController {
     @PostMapping("/friends")
     public Result<Void> addFriend(@RequestAttribute("userId") String userId, 
                                   @RequestBody AddFriendRequest request) {
-        friendService.addFriend(Long.parseLong(userId), request.getFriendId());
+        friendRequestService.sendRequest(Long.parseLong(userId), request.getFriendId());
         return Result.ok();
     }
 
@@ -158,7 +159,8 @@ public class ContactController {
                         "nickname", user != null && user.getNickname() != null ? user.getNickname() : "",
                         "avatar", user != null && user.getAvatar() != null ? user.getAvatar() : "",
                         "role", m.getRole(),
-                        "joinedAt", m.getJoinedAt()
+                        "joinedAt", m.getJoinedAt(),
+                        "deleted", user != null && user.getDeleted() != null && user.getDeleted() == 1
                     );
                 })
                 .toList();

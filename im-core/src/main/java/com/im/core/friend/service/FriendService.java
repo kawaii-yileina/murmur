@@ -16,7 +16,6 @@ public class FriendService {
 
     private final FriendMapper friendMapper;
     private final UserService userService;
-    private final FriendRequestService friendRequestService;
 
     public List<User> getFriends(Long userId) {
         List<Friend> friendships = friendMapper.selectList(
@@ -26,10 +25,6 @@ public class FriendService {
                 .map(f -> userService.findById(f.getFriendId()))
                 .filter(java.util.Objects::nonNull)
                 .toList();
-    }
-
-    public void addFriend(Long userId, Long friendId) {
-        friendRequestService.sendRequest(userId, friendId);
     }
 
     public void removeFriend(Long userId, Long friendId) {
