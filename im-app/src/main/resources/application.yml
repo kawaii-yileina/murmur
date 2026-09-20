@@ -3,6 +3,13 @@ server:
   address: 0.0.0.0
 
 spring:
+  application:
+    name: im-server
+  cloud:
+    nacos:
+      discovery:
+        # 默认关闭：非集群模式启动不依赖 Nacos；集群模式用 application-cluster.yml 打开
+        enabled: ${NACOS_ENABLED:false}
   servlet:
     multipart:
       max-file-size: 200MB
@@ -76,6 +83,17 @@ im:
   mail:
     # 邮件验证码开关；需同时配置 spring.mail.* 才能发送
     enabled: ${MAIL_ENABLED:false}
+  cluster:
+    # 分布式连接路由总开关；关闭时全部跨节点逻辑不生效（单机行为不变）
+    enabled: ${CLUSTER_ENABLED:false}
+    # 节点标识：多实例必须唯一
+    node-id: ${NODE_ID:connector-local-1}
+    # 连接路由表 TTL（秒）
+    route-ttl-seconds: 90
+    # 路由 TTL 续期节流间隔（秒）
+    heartbeat-renew-seconds: 30
+    # 默认设备类型（当前客户端为手机端）
+    default-device-type: mobile
 
 jwt:
   # 必须通过环境变量 JWT_SECRET 注入（>=32 字节），不得写入配置文件,开发环境可以写入配置文件

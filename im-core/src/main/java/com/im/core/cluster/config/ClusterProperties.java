@@ -1,0 +1,32 @@
+package com.im.core.cluster.config;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * 分布式连接路由配置（前缀 im.cluster）。
+ *
+ * 默认 enabled=false：单机启动不依赖 Nacos / RocketMQ，行为与未引入集群能力时一致；
+ * 集群模式通过 application-cluster.yml 打开。
+ */
+@Getter
+@Setter
+@ConfigurationProperties(prefix = "im.cluster")
+public class ClusterProperties {
+
+    /** 分布式连接路由总开关 */
+    private boolean enabled = false;
+
+    /** 节点标识，多实例必须唯一 */
+    private String nodeId = "connector-local-1";
+
+    /** 连接路由表 TTL（秒） */
+    private long routeTtlSeconds = 90;
+
+    /** 路由 TTL 续期节流间隔（秒） */
+    private long heartbeatRenewSeconds = 30;
+
+    /** 默认设备类型（当前客户端为手机端） */
+    private String defaultDeviceType = "mobile";
+}

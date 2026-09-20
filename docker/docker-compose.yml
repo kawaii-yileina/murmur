@@ -1,0 +1,90 @@
+# IM 集群基础设施（本地 / 开发）
+# 启动： docker compose -f im-server/docker/docker-compose.yml up -d
+# 停止： docker compose -f im-server/docker/docker-compose.yml down
+# 端口与 application.yml / application-cluster.yml 默认值对齐：
+#   MySQL 3308 | Redis 6380 | Nacos 8848(+9848) | RocketMQ 9876 / 10911
+name: im-infra
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: im-mysql
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: im_db
+      TZ: Asia/Shanghai
+    volumes:
+      - im-mysql-data:/var/lib/mysql
+      - ../../sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2
+    container_name: im-redis
+    ports:
+      - "6380:6379"
+    # 打开 keyspace 通知（在线状态过期事件依赖）
+    command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "Ex"]
+    volumes:
+      - im-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  nacos:
+    image: nacos/nacos-server:v2.3.2
+    container_name: im-nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - im-nacos-data:/home/nacos/data
+
+  rmqnamesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: im-rmqnamesrv
+    command: sh mqnamesrv
+    environment:
+      JAVA_OPT_EXT: "-server -Xms256m -Xmx512m"
+    ports:
+      - "9876:9876"
+    volumes:
+      - im-rmq-namesrv-logs:/home/rocketmq/logs
+
+  rmqbroker:
+    image: apache/rocketmq:5.3.1
+    container_name: im-rmqbroker
+    depends_on:
+      - rmqnamesrv
+    command: sh mqbroker -n rmqnamesrv:9876 -c /home/rocketmq/broker.conf
+    environment:
+      JAVA_OPT_EXT: "-server -Xms512m -Xmx1g"
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
+      - im-rmq-broker-logs:/home/rocketmq/logs
+      - im-rmq-broker-store:/home/rocketmq/store
+
+volumes:
+  im-mysql-data:
+  im-redis-data:
+  im-nacos-data:
+  im-rmq-namesrv-logs:
+  im-rmq-broker-logs:
+  im-rmq-broker-store:

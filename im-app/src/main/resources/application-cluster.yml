@@ -1,0 +1,19 @@
+# 集群模式配置：启动时加 --spring.profiles.active=cluster
+# 单机默认（不激活本 profile）不依赖 Nacos / RocketMQ，行为与 master 一致。
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+
+im:
+  cluster:
+    enabled: true
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV:127.0.0.1:9876}
+  producer:
+    group: ${ROCKETMQ_PRODUCER_GROUP:im-dispatch-producer}
+    send-message-timeout: 3000
+    retry-times-when-send-failed: 2
