@@ -47,7 +47,13 @@ public class MessageService {
             ChatConstants.HEADER_REPLY_TO,
             ChatConstants.HEADER_MENTIONS);
 
-    public void persistMessage(ChatMessage chatMessage, List<String> recipients) {
+    /**
+     * 落库消息，并写入本次由 t_conversation_seq 同事务分配的会话序号 seq。
+     * 调用方（OutboxService）在其事务内调用，本方法不单独开启事务。
+     *
+     * @return 落库后的消息实体（含服务端 msgId 与 id）
+     */
+    public Message persistMessage(ChatMessage chatMessage, long seq) {
         Message msg = new Message();
         String msgId = chatMessage.getId();
         msg.setMsgId(msgId != null && !msgId.isBlank() ? msgId : UUID.randomUUID().toString());
@@ -59,8 +65,10 @@ public class MessageService {
         msg.setReplyTo(resolveReplyTo(chatMessage));
         msg.setMentions(resolveMentions(chatMessage));
         msg.setHeaders(resolveHeaders(chatMessage));
+        msg.setSeq(seq);
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
+        return msg;
     }
 
     /**

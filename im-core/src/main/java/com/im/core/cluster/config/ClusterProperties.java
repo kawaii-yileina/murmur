@@ -35,4 +35,27 @@ public class ClusterProperties {
 
     /** 节点心跳间隔（毫秒） */
     private long nodeHeartbeatMillis = 10000;
+
+    // ---------- Outbox ----------
+
+    /** Outbox 每批领取数量 */
+    private int outboxBatch = 200;
+
+    /** Outbox 任务租约（秒） */
+    private long outboxLeaseSeconds = 30;
+
+    /** Outbox 轮询间隔（毫秒） */
+    private long outboxPollMillis = 500;
+
+    /** Outbox 最大重试次数，超过置 DEAD */
+    private int outboxMaxRetry = 8;
+
+    /** Outbox 退避基数（毫秒） */
+    private long outboxBackoffBaseMillis = 1000;
+
+    /** Outbox 退避上限（毫秒） */
+    private long outboxBackoffMaxMillis = 60000;
+
+    /** 待处理积压告警阈值 */
+    private int outboxBacklogAlertThreshold = 1000;
 }

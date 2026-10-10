@@ -22,5 +22,7 @@ public class Message {
     private String mentions;
     /** 展示型头信息（JSON：duration/format/originalName/size/textContent 等），历史消息据此还原语音时长、文件名等 */
     private String headers;
+    /** 会话内权威序号（与 t_outbox.seq 一致，由 t_conversation_seq 同事务分配） */
+    private Long seq;
     private LocalDateTime createdAt;
 }

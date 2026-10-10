@@ -1,85 +1,61 @@
 package com.im.core.chat.hook;
 
+import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.persistence.MessagePersistentHook;
 import com.elaina.chat.core.registry.UserConnectionRegistry;
 import com.im.common.constant.ChatConstants;
-import com.im.common.utils.MentionsUtils;
-import com.im.core.conversation.service.ConversationService;
-import com.im.core.message.service.MessageService;
+import com.im.core.outbox.service.OutboxService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 持久化钩子：把"分配 seq + 消息落库 + 会话更新 + Outbox 入队"委托给 {@link OutboxService}
+ * 在单个数据库事务内完成；事务提交后再回 ACK。
+ *
+ * 说明：
+ * - 本方法由框架在异步线程调用；不再叠加 @Async（避免双重异步）。
+ * - 事务边界在 OutboxService，异常在 OutboxService 内向上抛并回滚；本方法仅兜底记日志，
+ *   避免异常逃逸到框架线程池。落库失败时不回 ACK，由发送端 ACK 超时兜底。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MessagePersistHook implements MessagePersistentHook {
 
-    private final MessageService messageService;
-    private final ConversationService conversationService;
-    private final UserConnectionRegistry connectionRegistry;
-
     private static final Set<String> SKIP_TYPES = Set.of("SYSTEM", "HEARTBEAT");
 
+    private final OutboxService outboxService;
+    private final UserConnectionRegistry connectionRegistry;
+
     @Override
-    @Async
-    @Transactional(rollbackFor = Exception.class)
     public void afterSend(ChatMessage msg, List<String> recipients, List<String> successList) {
-        try {
-            String type = msg.getType();
-            if (SKIP_TYPES.contains(type)) {
-                return;
-            }
-
-            Long senderId = parseLong(msg.getFrom());
-            Long receiverId = parseLong(msg.getTo());
-            if (senderId == null || receiverId == null) {
-                log.warn("Skipping persist for message with non-numeric ids: from={}, to={}", msg.getFrom(), msg.getTo());
-                return;
-            }
-
-            messageService.persistMessage(msg, successList);
-
-            int chatType = msg.isGroup() ? 1 : 0;
-            String lastMsgContent = truncateMessage(msg);
-
-            Long recipientTargetId = msg.isGroup() ? receiverId : senderId;
-
-            // 群聊 @提及：解析被 @ 成员，用于置会话强提醒
-            Set<String> mentionedUserIds = chatType == 1
-                    ? MentionsUtils.extractUserIds(getHeader(msg, ChatConstants.HEADER_MENTIONS))
-                    : Set.of();
-            boolean mentionAll = mentionedUserIds.contains(ChatConstants.MENTION_ALL);
-
-            // 用 recipients（全部目标）而非 successList（仅在线送达）更新会话：
-            // 离线接收方的消息会进离线队列，其会话预览/未读数也必须同步，
-            // 否则同一会话两端显示的"最后一条消息"会不一致。
-            for (String recipientId : recipients) {
-                Long rid = parseLong(recipientId);
-                if (rid != null) {
-                    boolean mentioned = mentionAll || mentionedUserIds.contains(recipientId);
-                    conversationService.updateConversation(
-                            rid, recipientTargetId, chatType, msg.getId(), lastMsgContent, mentioned);
-                }
-            }
-
-            conversationService.updateConversation(senderId, receiverId, chatType, msg.getId(), lastMsgContent);
-            sendAckToSender(msg, successList);
-
-        } catch (Exception e) {
-            log.error("Failed to persist message: {}", msg.getId(), e);
+        if (SKIP_TYPES.contains(msg.getType())) {
+            return;
         }
+        Long senderId = parseLong(msg.getFrom());
+        Long receiverId = parseLong(msg.getTo());
+        if (senderId == null || receiverId == null) {
+            log.warn("Skipping persist for message with non-numeric ids: from={}, to={}", msg.getFrom(), msg.getTo());
+            return;
+        }
+
+        try {
+            outboxService.persistAndEnqueue(msg, recipients, successList);
+        } catch (Exception e) {
+            log.error("Failed to persist message {}, skip ACK: {}", msg.getId(), e.getMessage(), e);
+            return;
+        }
+        sendAckToSender(msg, successList);
     }
 
     /**
-     * 持久化成功后向发送者发送 ACK：
-     * SYSTEM 类型消息，headers 携带 ack=true、clientMsgId、serverMsgId、delivered。
-     * 前端据此更新本地消息状态为 sent，替换 msgId 为服务端 id。
+     * 持久化成功后向发送者发送 ACK：SYSTEM 类型消息，headers 携带 ack=true、clientMsgId、
+     * serverMsgId、delivered。前端据此把本地消息置为 sent 并替换 msgId。
      */
     private void sendAckToSender(ChatMessage msg, List<String> successList) {
         try {
@@ -102,8 +78,13 @@ public class MessagePersistHook implements MessagePersistentHook {
             ack.addHeader("serverMsgId", msg.getId() != null ? msg.getId() : "");
             ack.addHeader("delivered", String.join(",", successList));
 
-            connectionRegistry.getConnection(msg.getFrom()).write(ack);
-            log.debug("Sent ACK for clientMsgId={}, serverMsgId={}", clientMsgId, msg.getId());
+            Connection connection = connectionRegistry.getConnection(msg.getFrom());
+            if (connection != null && connection.isActive()) {
+                connection.write(ack);
+                log.debug("Sent ACK for clientMsgId={}, serverMsgId={}", clientMsgId, msg.getId());
+            } else {
+                log.debug("Skip ACK, sender offline: user={}", msg.getFrom());
+            }
         } catch (Exception e) {
             log.error("Failed to send ACK for message from {}", msg.getFrom(), e);
         }
@@ -115,38 +96,6 @@ public class MessagePersistHook implements MessagePersistentHook {
             return Long.parseLong(value.trim());
         } catch (NumberFormatException e) {
             return null;
-        }
-    }
-
-    private String truncateMessage(ChatMessage msg) {
-        String content = msg.getContent();
-        String type = msg.getType();
-        if (content == null) return "";
-        return switch (type) {
-            case "IMAGE" -> "[图片]";
-            case "VIDEO" -> "[视频]";
-            case "VOICE" -> "[语音] " + Math.round(parseDuration(msg)) + "\"";
-            case "CONTACT_CARD" -> "[个人名片]";
-            case "FILE" -> {
-                String name = getHeader(msg, "originalName");
-                String text = "[文件] " + name;
-                yield text.length() > 50 ? text.substring(0, 50) + "..." : text;
-            }
-            default -> content.length() > 50 ? content.substring(0, 50) + "..." : content;
-        };
-    }
-
-    private String getHeader(ChatMessage msg, String key) {
-        if (msg.getHeaders() == null) return "";
-        Object value = msg.getHeaders().get(key);
-        return value != null ? String.valueOf(value) : "";
-    }
-
-    private double parseDuration(ChatMessage msg) {
-        try {
-            return Double.parseDouble(getHeader(msg, "duration"));
-        } catch (NumberFormatException e) {
-            return 0;
         }
     }
 }
