@@ -6,6 +6,7 @@ import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.gateway.MessageGateway;
 import com.elaina.chat.core.registry.UserConnectionRegistry;
 import com.im.common.utils.JwtUtils;
+import com.im.core.cluster.ConnAttributes;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.message.service.OfflineMessageService;
@@ -73,33 +74,23 @@ public class StatusEventListener implements ChatEventListener {
             return;
         }
         try {
-            routeRegistry.register(userId, resolveDeviceId(connection), connection.id(), resolvePlatform(connection));
+            routeRegistry.register(userId, ConnAttributes.deviceId(connection), connection.id(),
+                    ConnAttributes.platform(connection));
         } catch (Exception e) {
             log.error("Failed to register route for user {}", userId, e);
         }
     }
 
-    /** 集群模式下移除连接路由 */
+    /** 集群模式下移除连接路由：仅当路由仍属于本连接时才删（旧连接下线不会误删新路由） */
     private void unregisterRoute(String userId, Connection connection) {
         if (!clusterProperties.isEnabled()) {
             return;
         }
         try {
-            routeRegistry.unregister(userId, resolveDeviceId(connection));
+            routeRegistry.unregister(userId, ConnAttributes.deviceId(connection), connection.id());
         } catch (Exception e) {
             log.error("Failed to unregister route for user {}", userId, e);
         }
-    }
-
-    /** 设备标识：优先取连接属性 deviceId，缺省 default（多端能力在后续批次接入真实 deviceId） */
-    private String resolveDeviceId(Connection connection) {
-        Object value = connection.attributes().get("deviceId");
-        return value != null && !value.toString().isBlank() ? value.toString() : RouteRegistry.DEFAULT_DEVICE_ID;
-    }
-
-    private String resolvePlatform(Connection connection) {
-        Object value = connection.attributes().get("platform");
-        return value != null ? value.toString() : "unknown";
     }
 
     private void notifyFriends(String userId, String content) {
