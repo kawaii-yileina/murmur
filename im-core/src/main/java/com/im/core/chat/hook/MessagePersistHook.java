@@ -3,13 +3,14 @@ package com.im.core.chat.hook;
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.persistence.MessagePersistentHook;
-import com.elaina.chat.core.registry.UserConnectionRegistry;
+import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.common.constant.ChatConstants;
 import com.im.core.outbox.service.OutboxService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -30,7 +31,7 @@ public class MessagePersistHook implements MessagePersistentHook {
     private static final Set<String> SKIP_TYPES = Set.of("SYSTEM", "HEARTBEAT");
 
     private final OutboxService outboxService;
-    private final UserConnectionRegistry connectionRegistry;
+    private final MultiConnectionRegistry connectionRegistry;
 
     @Override
     public void afterSend(ChatMessage msg, List<String> recipients, List<String> successList) {
@@ -78,10 +79,13 @@ public class MessagePersistHook implements MessagePersistentHook {
             ack.addHeader("serverMsgId", msg.getId() != null ? msg.getId() : "");
             ack.addHeader("delivered", String.join(",", successList));
 
-            Connection connection = connectionRegistry.getConnection(msg.getFrom());
-            if (connection != null && connection.isActive()) {
-                connection.write(ack);
-                log.debug("Sent ACK for clientMsgId={}, serverMsgId={}", clientMsgId, msg.getId());
+            Collection<Connection> conns = connectionRegistry.getConnections(msg.getFrom());
+            for (Connection c : conns) {
+                c.write(ack);
+            }
+            if (!conns.isEmpty()) {
+                log.debug("Sent ACK for clientMsgId={}, serverMsgId={} to {} device(s)",
+                        clientMsgId, msg.getId(), conns.size());
             } else {
                 log.debug("Skip ACK, sender offline: user={}", msg.getFrom());
             }

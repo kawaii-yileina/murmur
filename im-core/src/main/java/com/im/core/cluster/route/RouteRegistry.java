@@ -143,17 +143,19 @@ public class RouteRegistry {
     // ---------- 连接路由 ----------
 
     /** 用户上线：登记路由并维护设备集合（epoch 大者胜） */
-    public void register(String userId, String deviceId, String connId, String platform) {
+    public void register(String userId, String deviceId, String deviceType, String connId, String platform) {
         long ttl = properties.getRouteTtlSeconds();
         String epochKey = epochKey(userId, deviceId);
         Long epoch = redis.opsForValue().increment(epochKey);
         redis.expire(epochKey, ttl * 10, TimeUnit.SECONDS);
         long now = System.currentTimeMillis();
+        String effectiveType = deviceType != null && !deviceType.isBlank()
+                ? deviceType : nodeContext.getDefaultDeviceType();
 
         Long result = redis.execute(REGISTER_SCRIPT,
                 List.of(routeKey(userId, deviceId), devicesKey(userId), nodeConnsKey(nodeContext.getNodeId())),
                 nodeContext.getNodeId(), connId, String.valueOf(epoch), deviceId, platform,
-                nodeContext.getDefaultDeviceType(), String.valueOf(now), String.valueOf(ttl),
+                effectiveType, String.valueOf(now), String.valueOf(ttl),
                 String.valueOf(ttl * 2), connKey(userId, deviceId, connId), String.valueOf(ttl * 10));
         invalidate(userId, deviceId);
 

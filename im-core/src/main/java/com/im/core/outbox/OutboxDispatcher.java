@@ -2,8 +2,9 @@ package com.im.core.outbox;
 
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
-import com.elaina.chat.core.registry.UserConnectionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.im.core.chat.registry.MultiConnectionRegistry;
+import com.im.core.cluster.MessageDedupService;
 import com.im.core.cluster.NodeContext;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.message.ClusterMessageProducer;
@@ -54,8 +55,9 @@ public class OutboxDispatcher {
     private final ClusterMessageProducer producer;
     private final RouteRegistry routeRegistry;
     private final NodeContext nodeContext;
-    private final UserConnectionRegistry connectionRegistry;
+    private final MultiConnectionRegistry connectionRegistry;
     private final OfflineMessageService offlineMessageService;
+    private final MessageDedupService dedupService;
     private final ObjectMapper objectMapper;
     private final ClusterProperties properties;
 
@@ -110,7 +112,8 @@ public class OutboxDispatcher {
 
             // 重新解析当前路由
             Map<String, List<ClusterTarget>> remoteByNode = new LinkedHashMap<>();
-            Set<String> localRecipients = new LinkedHashSet<>();
+            List<ClusterTarget> localTargets = new ArrayList<>();
+            List<ClusterTarget> offlineTargets = new ArrayList<>();
             Set<String> offlineRecipients = new LinkedHashSet<>();
             for (String recipientId : recipients) {
                 boolean routed = false;
@@ -127,7 +130,7 @@ public class OutboxDispatcher {
                     }
                     routed = true;
                     if (local) {
-                        localRecipients.add(recipientId);
+                        localTargets.add(new ClusterTarget(recipientId, deviceId, entry.getDeviceType()));
                     } else {
                         remoteByNode.computeIfAbsent(entry.getNodeId(), key -> new ArrayList<>())
                                 .add(new ClusterTarget(recipientId, deviceId, entry.getDeviceType()));
@@ -138,13 +141,19 @@ public class OutboxDispatcher {
                 }
             }
 
-            // 本地写（发送时该目标恰在本节点）
-            for (String recipientId : localRecipients) {
-                Connection connection = connectionRegistry.getConnection(recipientId);
+            // 本地写（按设备精确定位；发送时该目标恰在本节点）
+            String msgId = message.getId();
+            for (ClusterTarget target : localTargets) {
+                if (dedupService.isProcessed(msgId, target.getUserId(), target.getDeviceId())) {
+                    continue; // 本地直投已送达，跳过避免重复
+                }
+                Connection connection = connectionRegistry.getConnection(target.getUserId(), target.getDeviceId());
                 if (connection != null && connection.isActive()) {
                     connection.write(message);
+                    dedupService.markProcessed(msgId, target.getUserId(), target.getDeviceId());
                 } else {
-                    offlineRecipients.add(recipientId);
+                    // 已知设备但本地连接不可用：按设备落离线
+                    offlineTargets.add(target);
                 }
             }
 
@@ -157,6 +166,9 @@ public class OutboxDispatcher {
             // 离线：写入失败必须上抛，令整行重试（不得标记 DONE 而丢消息）
             for (String recipientId : offlineRecipients) {
                 offlineMessageService.storeOfflineMessage(recipientId, message);
+            }
+            for (ClusterTarget target : offlineTargets) {
+                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), message);
             }
 
             outboxService.markDone(outbox.getId());

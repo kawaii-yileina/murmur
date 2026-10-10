@@ -3,7 +3,7 @@ package com.im.core.chat.config;
 import com.elaina.chat.core.chatConfig.ChatConfigurer;
 import com.elaina.chat.core.registry.HandlerRegistry;
 import com.elaina.chat.core.registry.InterceptorRegistry;
-import com.elaina.chat.core.registry.UserConnectionRegistry;
+import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.chat.handler.HeartbeatHandler;
 import com.im.core.chat.handler.MediaMessageHandler;
 import com.im.core.chat.handler.MessageIdAssignHandler;
@@ -24,7 +24,7 @@ public class ChatConfiguration implements ChatConfigurer {
     private final MediaMessageHandler mediaMessageHandler;
     private final HeartbeatHandler heartbeatHandler;
     private final StringRedisTemplate redisTemplate;
-    private final UserConnectionRegistry connectionRegistry;
+    private final MultiConnectionRegistry connectionRegistry;
 
 
     @Override

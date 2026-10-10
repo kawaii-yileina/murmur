@@ -66,7 +66,15 @@ public class HeartbeatHandler implements MessageHandler {
         }
         lastRouteRenew.put(throttleKey, now);
         try {
-            routeRegistry.renew(userId, ConnAttributes.deviceId(connection), connection.id());
+            String deviceId = ConnAttributes.deviceId(connection);
+            boolean renewed = routeRegistry.renew(userId, deviceId, connection.id());
+            if (!renewed && connection.isActive()) {
+                // 路由缺失/被清理（如 Redis 重启、TTL 到期）：重建（epoch INCR 天然幂等），
+                // 避免该设备长期不在路由表，导致远端误判离线/收不到实时消息。
+                log.warn("Route renew failed, re-register: user={}, device={}", userId, deviceId);
+                routeRegistry.register(userId, deviceId, ConnAttributes.deviceType(connection),
+                        connection.id(), ConnAttributes.platform(connection));
+            }
         } catch (Exception e) {
             log.warn("Failed to renew route for user {}: {}", userId, e.getMessage());
         }
