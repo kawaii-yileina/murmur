@@ -100,6 +100,8 @@ im:
     node-heartbeat-millis: 10000
     # Outbox 每批领取数量
     outbox-batch: 200
+    # 同一会话 Outbox 在途（未 DONE）条数上限（窗口内近似有序，保证吞吐）
+    outbox-conversation-window: 100
     # Outbox 任务租约（秒）
     outbox-lease-seconds: 30
     # Outbox 轮询间隔（毫秒）
@@ -112,6 +114,8 @@ im:
     outbox-backoff-max-millis: 60000
     # 待处理积压告警阈值
     outbox-backlog-alert-threshold: 1000
+    # 跨节点消费最大重消费次数（超过作死信：落离线兜底 + 告警）
+    consumer-max-reconsume: 5
 
 jwt:
   # 必须通过环境变量 JWT_SECRET 注入（>=32 字节），不得写入配置文件,开发环境可以写入配置文件

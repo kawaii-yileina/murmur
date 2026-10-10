@@ -70,7 +70,12 @@ public class ChatMessageSender extends AbstractSender {
                 continue;
             }
             offline.add(recipientId);
-            offlineMessageService.storeOfflineMessage(recipientId, message);
+            try {
+                offlineMessageService.storeOfflineMessage(recipientId, message);
+            } catch (Exception e) {
+                // 单机模式：离线队列不可用不阻断发送，仅告警（重连后可由 seq 补拉兜底）
+                log.error("Failed to store offline message for user {}: {}", recipientId, e.getMessage());
+            }
             notifyOffline(message, recipientId, sender);
         }
 

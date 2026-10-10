@@ -41,6 +41,9 @@ public class ClusterProperties {
     /** Outbox 每批领取数量 */
     private int outboxBatch = 200;
 
+    /** 同一会话允许的在途（未 DONE）条数上限：限制窗内条数、保持近似顺序并保证吞吐 */
+    private int outboxConversationWindow = 100;
+
     /** Outbox 任务租约（秒） */
     private long outboxLeaseSeconds = 30;
 
@@ -58,4 +61,9 @@ public class ClusterProperties {
 
     /** 待处理积压告警阈值 */
     private int outboxBacklogAlertThreshold = 1000;
+
+    // ---------- 消费端 ----------
+
+    /** 跨节点消费最大重消费次数；超过则作死信处理（落离线兜底 + 告警），不再无限重投 */
+    private int consumerMaxReconsume = 5;
 }

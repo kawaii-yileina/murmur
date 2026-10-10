@@ -4,6 +4,7 @@ import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.registry.UserConnectionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.core.cluster.NodeContext;
+import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.message.service.OfflineMessageService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -46,6 +47,7 @@ public class ClusterMessageConsumer {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final NodeContext nodeContext;
+    private final ClusterProperties properties;
 
     @Value("${rocketmq.name-server}")
     private String nameServer;
@@ -56,18 +58,29 @@ public class ClusterMessageConsumer {
     public void start() {
         String tag = ClusterMessageProducer.tag(nodeContext.getNodeId());
         String group = "im-dispatch-" + nodeContext.getNodeId();
+        int maxReconsume = Math.max(1, properties.getConsumerMaxReconsume());
         DefaultMQPushConsumer pushConsumer = new DefaultMQPushConsumer(group);
         pushConsumer.setNamesrvAddr(nameServer);
+        pushConsumer.setMaxReconsumeTimes(maxReconsume);
         pushConsumer.registerMessageListener((MessageListenerConcurrently) (messages, context) -> {
+            boolean retry = false;
             for (MessageExt message : messages) {
                 try {
                     handle(message.getBody());
                 } catch (Exception e) {
-                    log.error("Failed to handle cluster message, will retry: {}", e.getMessage(), e);
-                    return ConsumeConcurrentlyStatus.RECONSUME_LATER;
+                    if (message.getReconsumeTimes() >= maxReconsume) {
+                        // 达到最大重消费：作死信处理，落离线兜底并告警，避免无限重投
+                        log.error("Cluster message dead-letter after {} reconsume: rocketMsgId={}, err={}",
+                                message.getReconsumeTimes(), message.getMsgId(), e.getClass().getSimpleName());
+                        persistDeadLetter(message.getBody());
+                    } else {
+                        log.warn("Failed to handle cluster message, will retry ({}): {}",
+                                message.getReconsumeTimes(), e.getClass().getSimpleName());
+                        retry = true;
+                    }
                 }
             }
-            return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+            return retry ? ConsumeConcurrentlyStatus.RECONSUME_LATER : ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
         });
         try {
             pushConsumer.subscribe(ClusterMessageProducer.TOPIC, tag);
@@ -77,7 +90,8 @@ public class ClusterMessageConsumer {
                     "Failed to start cluster message consumer (nameServer=" + nameServer + ", tag=" + tag + ")", e);
         }
         this.consumer = pushConsumer;
-        log.info("Cluster message consumer started: group={}, tag={}, nameServer={}", group, tag, nameServer);
+        log.info("Cluster message consumer started: group={}, tag={}, nameServer={}, maxReconsume={}",
+                group, tag, nameServer, maxReconsume);
     }
 
     @PreDestroy
@@ -111,6 +125,30 @@ public class ClusterMessageConsumer {
             }
             // 3) 记录处理状态（写在投递之后，避免"标记后写失败"导致丢消息）
             markProcessed(dedupKey);
+        }
+    }
+
+    /**
+     * 死信兜底：尽力将尚未处理的目标消息落离线队列，避免静默丢失；失败仅告警（最终由会话 seq 补拉兜底）。
+     * 与正常路径一致地检查/写入去重标记：前几轮已成功投递的目标不重复落离线，落库成功后写标记，
+     * 避免同批次重投时重复入队。
+     */
+    private void persistDeadLetter(byte[] body) {
+        try {
+            ClusterMessage payload = objectMapper.readValue(body, ClusterMessage.class);
+            if (payload.getMessage() == null || payload.getTargets() == null) {
+                return;
+            }
+            for (ClusterTarget target : payload.getTargets()) {
+                String dedupKey = dedupKey(payload.getMsgId(), target.getDeviceId());
+                if (isProcessed(dedupKey)) {
+                    continue;
+                }
+                offlineMessageService.storeOfflineMessage(target.getUserId(), payload.getMessage());
+                markProcessed(dedupKey);
+            }
+        } catch (Exception e) {
+            log.error("Failed to persist dead-letter cluster message to offline: {}", e.getClass().getSimpleName());
         }
     }
 

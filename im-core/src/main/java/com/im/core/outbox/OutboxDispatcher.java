@@ -39,7 +39,8 @@ import java.util.concurrent.TimeUnit;
  * - 发送时重新解析路由，不依赖入队时的目标节点。
  * - 失败退避重试，超过上限置 DEAD；进程崩溃留下的 PROCESSING 由租约过期回收。
  * - DONE 仅表示 RocketMQ 发送成功，不代表客户端送达；重复由消费端幂等 + 客户端 msgId 去重收敛。
- * - 会话内顺序由 OutboxMapper.selectClaimableIds 的队头约束（同一会话只领取最早未完成行）保证。
+ * - 会话内顺序由 OutboxMapper.selectClaimableIds 的会话窗口约束（同一会话在途未完成行少于 window）近似保证；
+ *   最终顺序由客户端按 seq 排序 + 增量补拉兜底。
  */
 @Slf4j
 @Component
@@ -112,21 +113,27 @@ public class OutboxDispatcher {
             Set<String> localRecipients = new LinkedHashSet<>();
             Set<String> offlineRecipients = new LinkedHashSet<>();
             for (String recipientId : recipients) {
-                boolean online = false;
+                boolean routed = false;
                 for (String deviceId : routeRegistry.deviceIds(recipientId)) {
                     RouteEntry entry = routeRegistry.find(recipientId, deviceId);
                     if (entry == null) {
                         continue;
                     }
-                    online = true;
-                    if (nodeContext.getNodeId().equals(entry.getNodeId())) {
+                    boolean local = nodeContext.getNodeId().equals(entry.getNodeId());
+                    // 非本节点：目标节点已失效（宕机/缩容且路由尚在 TTL 内）则跳过，避免投递到无消费者的节点。
+                    // 本节点不做存活校验：即便节点存活标记因 Redis 抖动短暂缺失，本进程显然存活，应照常本地投递。
+                    if (!local && !routeRegistry.isNodeAlive(entry.getNodeId())) {
+                        continue;
+                    }
+                    routed = true;
+                    if (local) {
                         localRecipients.add(recipientId);
                     } else {
                         remoteByNode.computeIfAbsent(entry.getNodeId(), key -> new ArrayList<>())
                                 .add(new ClusterTarget(recipientId, deviceId, entry.getDeviceType()));
                     }
                 }
-                if (!online) {
+                if (!routed) {
                     offlineRecipients.add(recipientId);
                 }
             }
@@ -147,7 +154,7 @@ public class OutboxDispatcher {
                         entry.getValue(), message);
             }
 
-            // 离线
+            // 离线：写入失败必须上抛，令整行重试（不得标记 DONE 而丢消息）
             for (String recipientId : offlineRecipients) {
                 offlineMessageService.storeOfflineMessage(recipientId, message);
             }
@@ -160,15 +167,17 @@ public class OutboxDispatcher {
 
     private void handleFailure(Outbox outbox, Exception e) {
         int retryCount = (outbox.getRetryCount() != null ? outbox.getRetryCount() : 0) + 1;
+        // 仅记异常类型到日志（消息体可能出现在解析异常信息中，避免泄漏到日志）；详情落库 last_error（内部）
+        String errType = e.getClass().getSimpleName();
         String err = e.getMessage();
         if (retryCount >= properties.getOutboxMaxRetry()) {
-            log.error("Outbox {} exceeded max retry ({}), mark DEAD: {}", outbox.getId(), retryCount, err);
+            log.error("Outbox {} exceeded max retry ({}), mark DEAD: {}", outbox.getId(), retryCount, errType);
             outboxService.markDead(outbox.getId(), retryCount, err);
         } else {
             long backoff = Math.min(properties.getOutboxBackoffBaseMillis() * (1L << Math.min(retryCount, 16)),
                     properties.getOutboxBackoffMaxMillis());
             LocalDateTime next = LocalDateTime.now().plusNanos(backoff * 1_000_000L);
-            log.warn("Outbox {} dispatch failed (retry {}), backoff {}ms: {}", outbox.getId(), retryCount, backoff, err);
+            log.warn("Outbox {} dispatch failed (retry {}), backoff {}ms: {}", outbox.getId(), retryCount, backoff, errType);
             outboxService.markRetry(outbox.getId(), retryCount, next, err);
         }
     }

@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -131,13 +132,17 @@ public class OutboxService {
      */
     @Transactional(rollbackFor = Exception.class)
     public List<Outbox> claim(int batch, long leaseSeconds) {
-        List<Long> ids = outboxMapper.selectClaimableIds(batch, LocalDateTime.now());
+        int window = Math.max(1, clusterProperties.getOutboxConversationWindow());
+        List<Long> ids = outboxMapper.selectClaimableIds(batch, window, LocalDateTime.now());
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
         LocalDateTime leaseUntil = LocalDateTime.now().plusSeconds(leaseSeconds);
         outboxMapper.markProcessing(ids, leaseUntil);
-        return outboxMapper.selectBatchIds(ids);
+        List<Outbox> claimed = new ArrayList<>(outboxMapper.selectBatchIds(ids));
+        // selectBatchIds 不保证顺序；按 seq 升序处理以保证同会话批内有序
+        claimed.sort(Comparator.comparingLong(Outbox::getSeq).thenComparingLong(Outbox::getId));
+        return claimed;
     }
 
     @Transactional(rollbackFor = Exception.class)

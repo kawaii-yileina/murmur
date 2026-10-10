@@ -14,20 +14,22 @@ import java.util.List;
  *
  * 领取在调用方的短事务内执行：SELECT ... FOR UPDATE SKIP LOCKED 锁定候选行，
  * 随后置 PROCESSING + 租约，事务提交后锁释放，调用方再在事务外做网络发送。
- * 领取条件含会话队头约束（同一会话只领取最早的未完成行），保证同会话不乱序。
+ * 领取条件含会话有序窗口约束：同一会话内，仅当"更早的在途行（PENDING/PROCESSING）"少于 window 时才可领取，
+ * 从而限制同会话在途条数、保证近似顺序，同时避免"每轮只能领取队头一条"导致的吞吐塌陷。
+ * 注：DEAD 为终态，不计入在途，避免其永久阻塞后续消息。
  */
 public interface OutboxMapper extends BaseMapper<Outbox> {
 
     @Select("SELECT o.id FROM t_outbox o "
             + "WHERE ((o.status = 'PENDING' AND o.next_retry_at <= #{now}) "
             + "    OR (o.status = 'PROCESSING' AND o.lease_until < #{now})) "
-            + "  AND NOT EXISTS ("
-            + "        SELECT 1 FROM t_outbox p "
-            + "         WHERE p.conversation_id = o.conversation_id "
-            + "           AND p.seq < o.seq AND p.status <> 'DONE') "
+            + "  AND (SELECT COUNT(*) FROM t_outbox p "
+            + "        WHERE p.conversation_id = o.conversation_id "
+            + "          AND p.seq < o.seq AND p.status IN ('PENDING','PROCESSING')) < #{window} "
             + "ORDER BY o.seq ASC, o.id ASC "
             + "LIMIT #{batch} FOR UPDATE SKIP LOCKED")
-    List<Long> selectClaimableIds(@Param("batch") int batch, @Param("now") LocalDateTime now);
+    List<Long> selectClaimableIds(@Param("batch") int batch, @Param("window") int window,
+                                  @Param("now") LocalDateTime now);
 
     @Update("<script>"
             + "UPDATE t_outbox SET status = 'PROCESSING', lease_until = #{leaseUntil}, updated_at = NOW() "

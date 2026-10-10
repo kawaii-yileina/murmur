@@ -49,7 +49,7 @@ public class RouteRegistry {
     /**
      * 注册：KEYS[1]=route KEYS[2]=devices KEYS[3]=nodeConns
      * ARGV[1]=nodeId [2]=connId [3]=epoch [4]=deviceId [5]=platform [6]=deviceType
-     *      [7]=loginAt [8]=routeTtl [9]=devicesTtl [10]=connKey
+     *      [7]=loginAt [8]=routeTtl [9]=devicesTtl [10]=connKey [11]=nodeConnsTtl
      * 返回 1=接受，0=被更新的登录代次拒绝。
      */
     private static final String REGISTER_LUA = """
@@ -69,12 +69,13 @@ public class RouteRegistry {
             redis.call('SADD', KEYS[2], ARGV[4])
             if tonumber(ARGV[9]) > 0 then redis.call('EXPIRE', KEYS[2], ARGV[9]) end
             redis.call('SADD', KEYS[3], ARGV[10])
+            if tonumber(ARGV[11]) > 0 then redis.call('EXPIRE', KEYS[3], ARGV[11]) end
             return 1
             """;
 
     /**
-     * 续期：KEYS[1]=route KEYS[2]=devices
-     * ARGV[1]=nodeId [2]=connId [3]=routeTtl [4]=devicesTtl
+     * 续期：KEYS[1]=route KEYS[2]=devices KEYS[3]=nodeConns
+     * ARGV[1]=nodeId [2]=connId [3]=routeTtl [4]=devicesTtl [5]=connKey [6]=nodeConnsTtl
      * 仅当 nodeId + connId 均匹配才续期；返回 1=已续期，0=非所有者。
      */
     private static final String RENEW_LUA = """
@@ -82,6 +83,10 @@ public class RouteRegistry {
             if redis.call('HGET', KEYS[1], 'nodeId') == ARGV[1] and redis.call('HGET', KEYS[1], 'connId') == ARGV[2] then
               redis.call('EXPIRE', KEYS[1], ARGV[3])
               if tonumber(ARGV[4]) > 0 and redis.call('EXISTS', KEYS[2]) == 1 then redis.call('EXPIRE', KEYS[2], ARGV[4]) end
+              if tonumber(ARGV[6]) > 0 then
+                redis.call('SADD', KEYS[3], ARGV[5])
+                redis.call('EXPIRE', KEYS[3], ARGV[6])
+              end
               return 1
             end
             return 0
@@ -132,6 +137,8 @@ public class RouteRegistry {
     private final ClusterProperties properties;
 
     private final ConcurrentHashMap<String, CachedRoute> cache = new ConcurrentHashMap<>();
+    /** 节点存活短缓存（仅缓存正结果，避免每个目标都打 Redis） */
+    private final ConcurrentHashMap<String, Long> nodeAliveCache = new ConcurrentHashMap<>();
 
     // ---------- 连接路由 ----------
 
@@ -147,7 +154,7 @@ public class RouteRegistry {
                 List.of(routeKey(userId, deviceId), devicesKey(userId), nodeConnsKey(nodeContext.getNodeId())),
                 nodeContext.getNodeId(), connId, String.valueOf(epoch), deviceId, platform,
                 nodeContext.getDefaultDeviceType(), String.valueOf(now), String.valueOf(ttl),
-                String.valueOf(ttl * 2), connKey(userId, deviceId, connId));
+                String.valueOf(ttl * 2), connKey(userId, deviceId, connId), String.valueOf(ttl * 10));
         invalidate(userId, deviceId);
 
         if (result != null && result == 1L) {
@@ -166,12 +173,13 @@ public class RouteRegistry {
         log.debug("Route unregister: user={}, device={}, owned={}", userId, deviceId, result);
     }
 
-    /** 续期：仅当 nodeId + connId 均匹配时生效 */
+    /** 续期：仅当 nodeId + connId 均匹配时生效；同时刷新 nodeConns 存活 */
     public boolean renew(String userId, String deviceId, String connId) {
         long ttl = properties.getRouteTtlSeconds();
         Long result = redis.execute(RENEW_SCRIPT,
-                List.of(routeKey(userId, deviceId), devicesKey(userId)),
-                nodeContext.getNodeId(), connId, String.valueOf(ttl), String.valueOf(ttl * 2));
+                List.of(routeKey(userId, deviceId), devicesKey(userId), nodeConnsKey(nodeContext.getNodeId())),
+                nodeContext.getNodeId(), connId, String.valueOf(ttl), String.valueOf(ttl * 2),
+                connKey(userId, deviceId, connId), String.valueOf(ttl * 10));
         return result != null && result == 1L;
     }
 
@@ -232,7 +240,21 @@ public class RouteRegistry {
     }
 
     public boolean isNodeAlive(String nodeId) {
-        return Boolean.TRUE.equals(redis.hasKey(nodeKey(nodeId)));
+        if (nodeId == null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        Long expireAt = nodeAliveCache.get(nodeId);
+        if (expireAt != null && expireAt > now) {
+            return true;
+        }
+        boolean alive = Boolean.TRUE.equals(redis.hasKey(nodeKey(nodeId)));
+        if (alive) {
+            nodeAliveCache.put(nodeId, now + CACHE_TTL_MILLIS);
+        } else {
+            nodeAliveCache.remove(nodeId);
+        }
+        return alive;
     }
 
     /** 优雅下线：清理仍属于本节点的全部路由与存活标记 */
