@@ -23,9 +23,14 @@ import java.time.Duration;
 /**
  * 跨节点投递消费者：只订阅本节点 Tag（NODE_{nodeId}），收到后直接回投本地连接。
  *
- * - 幂等：im:msg:dedup:{msgId}:{deviceId} 保证同一消息同一设备只回投一次
- * - 回投失败（目标已离线）：写入离线队列，由用户重连时补投
- * - 不重走 Dispatcher：避免回环与重复落库
+ * 处理顺序：检查是否已处理 -> 写入本地连接 -> 记录处理状态 -> 消费成功。
+ * - 连接写入失败：不记录去重标记，返回 RECONSUME_LATER 触发重投（不丢）。
+ * - 写入成功后、记录去重标记前进程崩溃：重投会导致重复，这是至少一次投递的正常边界。
+ *   重复由稳定的消息 id（msgId）+ 客户端幂等 + 后续会话 seq 补拉共同兜底，不承诺"恰好一次"。
+ * - 回投时目标已离线：写入离线队列，由用户重连时补投。
+ * - 语义边界：writeAndFlush 返回仅代表已投递给连接，不代表客户端已收到；
+ *   本阶段保证的是"消息持久化后可重新投递"，而非"客户端必定恰好收到一次"。
+ * - 不重走 Dispatcher：避免回环与重复落库。
  */
 @Slf4j
 @Component
@@ -89,11 +94,14 @@ public class ClusterMessageConsumer {
             return;
         }
         for (ClusterTarget target : payload.getTargets()) {
-            if (!markIfNew(payload.getMsgId(), target.getDeviceId())) {
+            String dedupKey = dedupKey(payload.getMsgId(), target.getDeviceId());
+            // 1) 检查是否已处理（命中则跳过；不写标记）
+            if (isProcessed(dedupKey)) {
                 log.debug("Duplicate cluster message skipped: msgId={}, device={}",
                         payload.getMsgId(), target.getDeviceId());
                 continue;
             }
+            // 2) 写入本地连接（写入失败会抛异常，不会记录标记，交由 MQ 重投）
             Connection connection = connectionRegistry.getConnection(target.getUserId());
             if (connection != null && connection.isActive()) {
                 connection.write(payload.getMessage());
@@ -101,15 +109,25 @@ public class ClusterMessageConsumer {
                 offlineMessageService.storeOfflineMessage(target.getUserId(), payload.getMessage());
                 log.debug("Target offline on this node, stored offline: user={}", target.getUserId());
             }
+            // 3) 记录处理状态（写在投递之后，避免"标记后写失败"导致丢消息）
+            markProcessed(dedupKey);
         }
     }
 
-    /** 幂等：同一消息同一设备只回投一次 */
-    private boolean markIfNew(String msgId, String deviceId) {
-        if (msgId == null) {
-            return true;
+    private String dedupKey(String msgId, String deviceId) {
+        return msgId == null ? null : DEDUP_PREFIX + msgId + ":" + deviceId;
+    }
+
+    /** 是否已处理过（无 msgId 的消息不去重） */
+    private boolean isProcessed(String dedupKey) {
+        return dedupKey != null && Boolean.TRUE.equals(redis.hasKey(dedupKey));
+    }
+
+    /** 记录处理状态；无 msgId 或标记写入失败时仅告警（重投可能重复，属至少一次边界） */
+    private void markProcessed(String dedupKey) {
+        if (dedupKey == null) {
+            return;
         }
-        Boolean first = redis.opsForValue().setIfAbsent(DEDUP_PREFIX + msgId + ":" + deviceId, "1", DEDUP_TTL);
-        return Boolean.TRUE.equals(first);
+        redis.opsForValue().set(dedupKey, "1", DEDUP_TTL);
     }
 }
