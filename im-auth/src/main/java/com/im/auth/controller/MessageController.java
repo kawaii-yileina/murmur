@@ -3,6 +3,7 @@ package com.im.auth.controller;
 import com.im.common.model.Result;
 import com.im.core.conversation.entity.Conversation;
 import com.im.core.conversation.service.ConversationService;
+import com.im.core.message.dto.MessageSyncResult;
 import com.im.core.message.entity.Message;
 import com.im.core.message.service.MessageService;
 import com.im.core.online.service.OnlineStatusService;
@@ -36,6 +37,21 @@ public class MessageController {
     @GetMapping("/conversations")
     public Result<List<Conversation>> getConversations(@RequestAttribute("userId") String userId) {
         return Result.ok(conversationService.getConversations(Long.parseLong(userId)));
+    }
+
+    /**
+     * 会话增量同步：返回 seq &gt; sinceSeq 的消息，用于断线重连/多端补拉。
+     * 客户端以返回的 lastSeq 作为下次 sinceSeq。
+     */
+    @GetMapping("/sync")
+    public Result<MessageSyncResult> sync(
+            @RequestAttribute("userId") String userId,
+            @RequestParam Long targetId,
+            @RequestParam Integer chatType,
+            @RequestParam(defaultValue = "0") long sinceSeq,
+            @RequestParam(defaultValue = "100") int limit) {
+        return Result.ok(messageService.sync(
+            Long.parseLong(userId), targetId, chatType, sinceSeq, limit));
     }
 
     /**

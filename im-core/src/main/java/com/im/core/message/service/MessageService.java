@@ -5,9 +5,13 @@ import com.elaina.chat.core.message.ChatMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.common.constant.ChatConstants;
+import com.im.common.enums.ChatType;
 import com.im.common.enums.MessageType;
 import com.im.common.exception.BizException;
 import com.im.core.conversation.service.ConversationService;
+import com.im.core.group.entity.GroupMember;
+import com.im.core.group.mapper.GroupMemberMapper;
+import com.im.core.message.dto.MessageSyncResult;
 import com.im.core.message.entity.Message;
 import com.im.core.message.event.MessageRecalledEvent;
 import com.im.core.message.mapper.MessageMapper;
@@ -17,6 +21,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,9 +37,13 @@ public class MessageService {
     private final ConversationService conversationService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final GroupMemberMapper groupMemberMapper;
 
     /** 撤回时限（分钟） */
     private static final int RECALL_TIMEOUT_MINUTES = 2;
+
+    /** 增量同步单次返回上限 */
+    private static final int MAX_SYNC_LIMIT = 200;
 
     /**
      * 不落库的 header 键：内部关联与 ACK 回执字段，以及已有独立列的 replyTo / mentions。
@@ -159,5 +168,53 @@ public class MessageService {
         wrapper.orderByDesc(Message::getCreatedAt)
                 .last("LIMIT " + size + " OFFSET " + (page - 1) * size);
         return messageMapper.selectList(wrapper);
+    }
+
+    /**
+     * 会话增量同步：按权威 seq 升序返回 seq &gt; sinceSeq 的持久化消息，供客户端断线重连补拉。
+     * 客户端以返回的 lastSeq 作为本地游标，配合 msgId 去重，不把序号空号当作丢消息。
+     * 说明：仅返回已分配 seq 的消息；迁移前的历史消息 seq 为 NULL，请走 /history 分页。
+     *
+     * @param userId    请求方（私聊按会话双方、群聊校验成员，防止越权读取）
+     * @param targetId  会话对端（私聊为对方 userId，群聊为 groupId）
+     * @param chatType  0 私聊 / 1 群聊
+     * @param sinceSeq  客户端已持有的最大 seq（首次可传 0）
+     * @param limit     单次上限（1~200）
+     */
+    public MessageSyncResult sync(Long userId, Long targetId, int chatType, long sinceSeq, int limit) {
+        int size = Math.min(Math.max(limit, 1), MAX_SYNC_LIMIT);
+        boolean group = chatType == ChatType.GROUP.getCode();
+        if (group && !isGroupMember(targetId, userId)) {
+            throw new BizException(403, "无权访问该群会话");
+        }
+
+        LambdaQueryWrapper<Message> wrapper = new LambdaQueryWrapper<Message>()
+                .eq(Message::getChatType, chatType);
+        if (group) {
+            wrapper.eq(Message::getReceiverId, targetId);
+        } else {
+            wrapper.and(w -> w
+                .and(inner -> inner.eq(Message::getSenderId, userId).eq(Message::getReceiverId, targetId))
+                .or(inner -> inner.eq(Message::getSenderId, targetId).eq(Message::getReceiverId, userId))
+            );
+        }
+        // 多取一条判断 hasMore，避免额外 count 查询
+        wrapper.gt(Message::getSeq, sinceSeq)
+                .orderByAsc(Message::getSeq)
+                .last("LIMIT " + (size + 1));
+
+        List<Message> rows = messageMapper.selectList(wrapper);
+        boolean hasMore = rows.size() > size;
+        List<Message> messages = hasMore ? new ArrayList<>(rows.subList(0, size)) : rows;
+        long lastSeq = messages.isEmpty() ? sinceSeq : messages.get(messages.size() - 1).getSeq();
+        return new MessageSyncResult(messages, lastSeq, hasMore);
+    }
+
+    private boolean isGroupMember(Long groupId, Long userId) {
+        return groupMemberMapper.selectCount(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, userId)
+        ) > 0;
     }
 }
