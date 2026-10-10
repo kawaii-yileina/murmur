@@ -24,7 +24,6 @@ public class ChatMessageRouter implements MessageRouter {
 
     private final GroupMemberProvider memberProvider;
     private final FriendService friendService;
-    private final MessageGateway messageGateway;
     private final UserService userService;
 
     @Override
