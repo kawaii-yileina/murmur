@@ -55,7 +55,8 @@ public class MessageService {
             ChatConstants.HEADER_SERVER_MSG_ID,
             ChatConstants.HEADER_DELIVERED,
             ChatConstants.HEADER_REPLY_TO,
-            ChatConstants.HEADER_MENTIONS);
+            ChatConstants.HEADER_MENTIONS,
+            ChatConstants.HEADER_SEQ);
 
     /**
      * 落库消息，并写入本次由 t_conversation_seq 同事务分配的会话序号 seq。

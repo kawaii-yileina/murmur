@@ -26,6 +26,9 @@ public class ClusterMessage {
     /** 0=私聊 1=群聊 */
     private int chatType;
 
+    /** 会话权威序号（持久化事务内分配），供消费端投递时附带 headers.seq */
+    private long seq;
+
     /** 目标节点标识 */
     private String targetNode;
 

@@ -11,6 +11,7 @@ import com.im.core.cluster.MessageDedupService;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.message.service.OfflineMessageService;
+import com.im.core.message.util.MessageHeaders;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -69,6 +70,8 @@ public class ChatMessageSender extends AbstractSender {
 
         boolean cluster = clusterProperties.isEnabled();
         String msgId = message.getId();
+        // 剥离服务端保留 header（如转发带入的旧 seq），避免污染接收端排序
+        ChatMessage outbound = MessageHeaders.stripReserved(message);
 
         for (String recipientId : recipients) {
             if (recipientId == null) {
@@ -78,7 +81,7 @@ public class ChatMessageSender extends AbstractSender {
             if (!conns.isEmpty()) {
                 Set<String> deliveredDevices = new HashSet<>();
                 for (Connection conn : conns) {
-                    conn.write(message);
+                    conn.write(outbound);
                     String deviceId = ConnAttributes.deviceId(conn);
                     deliveredDevices.add(deviceId);
                     if (cluster) {
@@ -113,12 +116,12 @@ public class ChatMessageSender extends AbstractSender {
 
             offline.add(recipientId);
             try {
-                offlineMessageService.storeOfflineMessage(recipientId, message);
+                offlineMessageService.storeOfflineMessage(recipientId, outbound);
             } catch (Exception e) {
                 // 单机模式：离线队列不可用不阻断发送，仅告警（重连后可由 seq 补拉兜底）
                 log.error("Failed to store offline message for user {}: {}", recipientId, e.getMessage());
             }
-            notifyOffline(message, recipientId, sender);
+            notifyOffline(outbound, recipientId, sender);
         }
 
         return SendResult.of(new ArrayList<>(fullyDelivered), new ArrayList<>(offline), failed);

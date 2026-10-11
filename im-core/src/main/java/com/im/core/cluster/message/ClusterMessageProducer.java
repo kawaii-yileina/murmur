@@ -33,15 +33,15 @@ public class ClusterMessageProducer {
     private final ObjectProvider<RocketMQTemplate> rocketMQTemplateProvider;
     private final ObjectMapper objectMapper;
 
-    /** 投递到目标节点 */
-    public void dispatch(String targetNode, String conversationId, int chatType,
+    /** 投递到目标节点（seq 为会话权威序号，消费端据此附带 headers.seq） */
+    public void dispatch(String targetNode, String conversationId, int chatType, long seq,
                          List<ClusterTarget> targets, ChatMessage message) {
         RocketMQTemplate template = rocketMQTemplateProvider.getIfAvailable();
         if (template == null) {
             throw new IllegalStateException("RocketMQTemplate 不可用，请确认 rocketmq.name-server 已配置");
         }
         ClusterMessage payload = new ClusterMessage(
-                message.getId(), conversationId, chatType, targetNode, targets, message);
+                message.getId(), conversationId, chatType, seq, targetNode, targets, message);
         try {
             byte[] body = objectMapper.writeValueAsBytes(payload);
             Message mqMessage = new Message(TOPIC, tag(targetNode), conversationId, body);

@@ -36,6 +36,11 @@ public final class ChatConstants {
     public static final String HEADER_SERVER_MSG_ID = "serverMsgId";
     /** 已送达目标列表（仅回执使用，不落库） */
     public static final String HEADER_DELIVERED = "delivered";
+    /**
+     * 会话权威序号：持久化投递路径（Outbox 本地投递/跨节点消费/离线补投）在消息 headers 附带，
+     * 供客户端按 seq 排序；仅下行附带，不落库（t_message.seq 为独立列）。
+     */
+    public static final String HEADER_SEQ = "seq";
     /** @所有人的特殊标识（成员 id 位） */
     public static final String MENTION_ALL = "all";
 

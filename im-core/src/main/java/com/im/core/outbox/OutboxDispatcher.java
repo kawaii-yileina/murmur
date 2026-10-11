@@ -13,6 +13,7 @@ import com.im.core.cluster.message.ClusterTarget;
 import com.im.core.cluster.route.RouteEntry;
 import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.message.service.OfflineMessageService;
+import com.im.core.message.util.SeqHeaders;
 import com.im.core.outbox.dto.OutboxPayload;
 import com.im.core.outbox.entity.Outbox;
 import com.im.core.outbox.service.OutboxService;
@@ -112,6 +113,9 @@ public class OutboxDispatcher {
                 clusterStats.incDispatchSuccess();
                 return;
             }
+            // 持久化投递路径附带权威 seq（本节点直投发生在 seq 分配前，不含 seq，由 /sync 回填）
+            long seq = outbox.getSeq() != null ? outbox.getSeq() : 0L;
+            ChatMessage delivered = SeqHeaders.withSeq(message, seq);
 
             // 重新解析当前路由
             Map<String, List<ClusterTarget>> remoteByNode = new LinkedHashMap<>();
@@ -152,7 +156,7 @@ public class OutboxDispatcher {
                 }
                 Connection connection = connectionRegistry.getConnection(target.getUserId(), target.getDeviceId());
                 if (connection != null && connection.isActive()) {
-                    connection.write(message);
+                    connection.write(delivered);
                     dedupService.markProcessed(msgId, target.getUserId(), target.getDeviceId());
                 } else {
                     // 已知设备但本地连接不可用：按设备落离线
@@ -162,16 +166,16 @@ public class OutboxDispatcher {
 
             // 远端按节点投递（任一节点发送失败 -> 整体重试，消费端按 msgId 幂等去重）
             for (Map.Entry<String, List<ClusterTarget>> entry : remoteByNode.entrySet()) {
-                producer.dispatch(entry.getKey(), outbox.getConversationId(), message.isGroup() ? 1 : 0,
+                producer.dispatch(entry.getKey(), outbox.getConversationId(), message.isGroup() ? 1 : 0, seq,
                         entry.getValue(), message);
             }
 
             // 离线：写入失败必须上抛，令整行重试（不得标记 DONE 而丢消息）
             for (String recipientId : offlineRecipients) {
-                offlineMessageService.storeOfflineMessage(recipientId, message);
+                offlineMessageService.storeOfflineMessage(recipientId, delivered);
             }
             for (ClusterTarget target : offlineTargets) {
-                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), message);
+                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
             }
 
             outboxService.markDone(outbox.getId());

@@ -1,6 +1,7 @@
 package com.im.core.cluster.message;
 
 import com.elaina.chat.core.connection.Connection;
+import com.elaina.chat.core.message.ChatMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.cluster.ClusterStats;
@@ -8,6 +9,7 @@ import com.im.core.cluster.MessageDedupService;
 import com.im.core.cluster.NodeContext;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.message.service.OfflineMessageService;
+import com.im.core.message.util.SeqHeaders;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -104,6 +106,8 @@ public class ClusterMessageConsumer {
         if (payload.getTargets() == null || payload.getMessage() == null) {
             return;
         }
+        // 附带权威 seq（消费端投递路径）
+        ChatMessage delivered = SeqHeaders.withSeq(payload.getMessage(), payload.getSeq());
         for (ClusterTarget target : payload.getTargets()) {
             // 1) 检查是否已处理（命中则跳过；不写标记）
             if (dedupService.isProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId())) {
@@ -114,9 +118,9 @@ public class ClusterMessageConsumer {
             // 2) 写入目标设备本地连接（best-effort；序列化等前置异常会抛并交由 MQ 重投）
             Connection connection = connectionRegistry.getConnection(target.getUserId(), target.getDeviceId());
             if (connection != null && connection.isActive()) {
-                connection.write(payload.getMessage());
+                connection.write(delivered);
             } else {
-                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), payload.getMessage());
+                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
                 log.debug("Target offline on this node, stored offline: user={}, device={}",
                         target.getUserId(), target.getDeviceId());
             }
@@ -136,11 +140,12 @@ public class ClusterMessageConsumer {
             if (payload.getMessage() == null || payload.getTargets() == null) {
                 return;
             }
+            ChatMessage delivered = SeqHeaders.withSeq(payload.getMessage(), payload.getSeq());
             for (ClusterTarget target : payload.getTargets()) {
                 if (dedupService.isProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId())) {
                     continue;
                 }
-                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), payload.getMessage());
+                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
                 dedupService.markProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId());
             }
         } catch (Exception e) {

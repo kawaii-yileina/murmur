@@ -45,20 +45,21 @@ public class MessagePersistHook implements MessagePersistentHook {
             return;
         }
 
+        long seq;
         try {
-            outboxService.persistAndEnqueue(msg, recipients, successList);
+            seq = outboxService.persistAndEnqueue(msg, recipients, successList);
         } catch (Exception e) {
             log.error("Failed to persist message {}, skip ACK: {}", msg.getId(), e.getMessage(), e);
             return;
         }
-        sendAckToSender(msg, successList);
+        sendAckToSender(msg, successList, seq);
     }
 
     /**
      * 持久化成功后向发送者发送 ACK：SYSTEM 类型消息，headers 携带 ack=true、clientMsgId、
-     * serverMsgId、delivered。前端据此把本地消息置为 sent 并替换 msgId。
+     * serverMsgId、seq、delivered。前端据此把本地消息置为 sent、替换 msgId 并写入 seq。
      */
-    private void sendAckToSender(ChatMessage msg, List<String> successList) {
+    private void sendAckToSender(ChatMessage msg, List<String> successList, long seq) {
         try {
             String clientMsgId = msg.getHeaders() != null
                     ? String.valueOf(msg.getHeaders().getOrDefault("clientMsgId", ""))
@@ -77,6 +78,7 @@ public class MessagePersistHook implements MessagePersistentHook {
             ack.addHeader("ack", "true");
             ack.addHeader("clientMsgId", clientMsgId);
             ack.addHeader("serverMsgId", msg.getId() != null ? msg.getId() : "");
+            ack.addHeader(ChatConstants.HEADER_SEQ, String.valueOf(seq));
             ack.addHeader("delivered", String.join(",", successList));
 
             Collection<Connection> conns = connectionRegistry.getConnections(msg.getFrom());
