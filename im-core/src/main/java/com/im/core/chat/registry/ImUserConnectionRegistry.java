@@ -15,7 +15,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 用户连接注册表（应用侧多端实现，覆盖框架默认 InMemoryUserConnectionRegistry）。
- *
  * 结构：userId -> (deviceId -> Connection)，支持同一账号多设备同时在线。
  * - register：按 (userId, deviceId) 存放；同一设备重复登录时顶号（关闭旧连接），不同设备并存。
  * - unregister(userId)：框架回调不带连接，无法区分设备，故只清理"已失活"的连接（活跃连接保留）。
@@ -128,6 +127,19 @@ public class ImUserConnectionRegistry implements MultiConnectionRegistry {
     @Override
     public Set<String> getOnlineUsers() {
         return Set.copyOf(userDevices.keySet());
+    }
+
+    @Override
+    public int connectionCount() {
+        int count = 0;
+        for (Map<String, Connection> devices : userDevices.values()) {
+            for (Connection c : devices.values()) {
+                if (c != null && c.isActive()) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private record DeviceKey(String userId, String deviceId) {

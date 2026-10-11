@@ -34,29 +34,11 @@
         <chat-nexus.version>1.0.0</chat-nexus.version>
         <mybatis-plus.version>3.5.6</mybatis-plus.version>
         <minio.version>8.5.9</minio.version>
-        <spring-cloud.version>2023.0.3</spring-cloud.version>
-        <spring-cloud-alibaba.version>2023.0.3.3</spring-cloud-alibaba.version>
         <rocketmq-spring.version>2.3.5</rocketmq-spring.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- Spring Cloud / Spring Cloud Alibaba BOM -->
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>com.alibaba.cloud</groupId>
-                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
-                <version>${spring-cloud-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
             <!-- RocketMQ -->
             <dependency>
                 <groupId>org.apache.rocketmq</groupId>

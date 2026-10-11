@@ -3,6 +3,7 @@ package com.im.core.cluster.message;
 import com.elaina.chat.core.connection.Connection;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.core.chat.registry.MultiConnectionRegistry;
+import com.im.core.cluster.ClusterStats;
 import com.im.core.cluster.MessageDedupService;
 import com.im.core.cluster.NodeContext;
 import com.im.core.cluster.config.ClusterProperties;
@@ -41,6 +42,7 @@ public class ClusterMessageConsumer {
     private final ObjectMapper objectMapper;
     private final NodeContext nodeContext;
     private final ClusterProperties properties;
+    private final ClusterStats clusterStats;
 
     @Value("${rocketmq.name-server}")
     private String nameServer;
@@ -60,7 +62,9 @@ public class ClusterMessageConsumer {
             for (MessageExt message : messages) {
                 try {
                     handle(message.getBody());
+                    clusterStats.incConsumerReceived();
                 } catch (Exception e) {
+                    clusterStats.incConsumerFailure();
                     if (message.getReconsumeTimes() >= maxReconsume) {
                         // 达到最大重消费：作死信处理，落离线兜底并告警，避免无限重投
                         log.error("Cluster message dead-letter after {} reconsume: rocketMsgId={}, err={}",

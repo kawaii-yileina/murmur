@@ -1,12 +1,6 @@
 # 集群模式配置：启动时加 --spring.profiles.active=cluster
-# 单机默认（不激活本 profile）不依赖 Nacos / RocketMQ，行为与 master 一致。
-spring:
-  cloud:
-    nacos:
-      discovery:
-        enabled: true
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-
+# 单机默认（不激活本 profile）不依赖 RocketMQ，行为与 master 一致。
+# 节点服务发现以 Redis 心跳（im:node:{nodeId}）为准，不使用 Nacos。
 im:
   cluster:
     enabled: true

@@ -56,6 +56,8 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers("/api/files/local/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                // 运维指标仅管理员（ROLE_ADMIN 由 JwtAuthenticationFilter 依 im.admin.user-ids 授予）
+                .requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             // 未认证返回 401（默认是 403），前端静默续期依赖 401 触发

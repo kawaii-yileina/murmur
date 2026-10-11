@@ -259,6 +259,16 @@ public class RouteRegistry {
         return alive;
     }
 
+    /**
+     * 停机第一步：摘除本节点存活标记并清本地缓存，令其他节点尽快停止向本节点投递；
+     * 路由暂留，待宽限期结束后再由 removeNodeRoutes 清理。
+     */
+    public void markNodeDraining() {
+        nodeAliveCache.remove(nodeContext.getNodeId());
+        redis.delete(nodeKey(nodeContext.getNodeId()));
+        log.info("Node marked draining (alive marker removed): node={}", nodeContext.getNodeId());
+    }
+
     /** 优雅下线：清理仍属于本节点的全部路由与存活标记 */
     public void removeNodeRoutes() {
         String connsKey = nodeConnsKey(nodeContext.getNodeId());

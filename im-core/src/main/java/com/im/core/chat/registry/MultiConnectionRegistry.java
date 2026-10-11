@@ -7,7 +7,6 @@ import java.util.Collection;
 
 /**
  * 多端连接注册表：在框架 {@link UserConnectionRegistry} 之上提供"按设备"维度的查询与连接感知移除。
- *
  * 背景：框架的注册表按 userId 单连接（见 chat-nexus F-13），无法支持同账号多端在线；
  * 且框架的 {@code unregister(userId)} 不带连接，无法区分设备。本接口在应用侧补齐这两点：
  * - {@link #getConnections(String)} / {@link #getConnection(String, String)} 按设备读取；
@@ -23,4 +22,7 @@ public interface MultiConnectionRegistry extends UserConnectionRegistry {
 
     /** 连接感知移除：仅移除与该连接身份匹配的映射（解决旧连接下线误删新连接/多端问题） */
     void removeConnection(Connection connection);
+
+    /** 本节点活跃连接总数（各设备各一条），用于指标 */
+    int connectionCount();
 }

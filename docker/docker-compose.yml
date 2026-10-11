@@ -2,7 +2,8 @@
 # 启动： docker compose -f im-server/docker/docker-compose.yml up -d
 # 停止： docker compose -f im-server/docker/docker-compose.yml down
 # 端口与 application.yml / application-cluster.yml 默认值对齐：
-#   MySQL 3308 | Redis 6380 | Nacos 8848(+9848) | RocketMQ 9876 / 10911
+#   MySQL 3308 | Redis 6380 | RocketMQ 9876 / 10911
+# 节点服务发现以 Redis 心跳（im:node:{nodeId}）为准，不引入 Nacos。
 name: im-infra
 
 services:
@@ -39,20 +40,6 @@ services:
       timeout: 5s
       retries: 10
 
-  nacos:
-    image: nacos/nacos-server:v2.3.2
-    container_name: im-nacos
-    environment:
-      MODE: standalone
-      PREFER_HOST_MODE: hostname
-      JVM_XMS: 256m
-      JVM_XMX: 512m
-    ports:
-      - "8848:8848"
-      - "9848:9848"
-    volumes:
-      - im-nacos-data:/home/nacos/data
-
   rmqnamesrv:
     image: apache/rocketmq:5.3.1
     container_name: im-rmqnamesrv
@@ -82,4 +69,3 @@ services:
 volumes:
   im-mysql-data:
   im-redis-data:
-  im-nacos-data:

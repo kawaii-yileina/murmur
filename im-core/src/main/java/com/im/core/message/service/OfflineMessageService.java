@@ -3,6 +3,7 @@ package com.im.core.message.service;
 import com.elaina.chat.core.message.ChatMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.im.core.cluster.ClusterStats;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -12,7 +13,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 离线消息队列（Redis，加速用）。事实来源是 MySQL 历史消息 + 会话 seq 增量补拉。
@@ -28,6 +28,7 @@ public class OfflineMessageService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final ClusterStats clusterStats;
 
     private static final String OFFLINE_KEY_PREFIX = "im:offline:";
     private static final int MAX_OFFLINE_MESSAGES = 500;
@@ -38,6 +39,16 @@ public class OfflineMessageService {
             "local v = redis.call('LRANGE', KEYS[1], 0, -1) " +
             "redis.call('DEL', KEYS[1]) " +
             "return v", List.class);
+
+    /**
+     * 原子入队：RPUSH + LTRIM（仅保留最近 max 条）+ EXPIRE 一步完成，避免多命令竞态与重复入队边界。
+     * ARGV[1]=消息 JSON [2]=保留条数上限 [3]=过期秒数。
+     */
+    private static final RedisScript<Long> STORE_SCRIPT = RedisScript.of(
+            "redis.call('RPUSH', KEYS[1], ARGV[1]) " +
+            "redis.call('LTRIM', KEYS[1], -tonumber(ARGV[2]), -1) " +
+            "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3])) " +
+            "return 1", Long.class);
 
     /** 用户级入队（无设备信息时使用） */
     public void storeOfflineMessage(String userId, ChatMessage message) {
@@ -70,13 +81,9 @@ public class OfflineMessageService {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Serialize offline message failed for user " + userId, e);
         }
-        redisTemplate.opsForList().rightPush(key, json);
-        redisTemplate.expire(key, OFFLINE_EXPIRE_HOURS, TimeUnit.HOURS);
-
-        Long size = redisTemplate.opsForList().size(key);
-        if (size != null && size > MAX_OFFLINE_MESSAGES) {
-            redisTemplate.opsForList().leftPop(key);
-        }
+        redisTemplate.execute(STORE_SCRIPT, Collections.singletonList(key),
+                json, String.valueOf(MAX_OFFLINE_MESSAGES), String.valueOf(OFFLINE_EXPIRE_HOURS * 3600L));
+        clusterStats.incOfflineStored();
         log.debug("Stored offline message for user {}, msgId={}", userId, message.getId());
     }
 

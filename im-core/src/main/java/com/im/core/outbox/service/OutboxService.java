@@ -160,6 +160,25 @@ public class OutboxService {
         outboxMapper.markDead(id, retryCount, truncate(lastError, 500));
     }
 
+    // ---------- 死信处置 ----------
+
+    /** 列出 DEAD 任务（供人工处置），limit 上限 200 */
+    public List<Outbox> listDead(int limit) {
+        return outboxMapper.selectDead(Math.max(1, Math.min(limit, 200)));
+    }
+
+    /** 死信重投：重置为 PENDING 重新入队；返回是否命中 DEAD 行 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean retryDead(Long id) {
+        return outboxMapper.retryDead(id) > 0;
+    }
+
+    /** 死信丢弃：删除 DEAD 行；返回是否命中 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean discardDead(Long id) {
+        return outboxMapper.deleteDead(id) > 0;
+    }
+
     // ---------- 读取（用于监控）----------
 
     public long countPending() {

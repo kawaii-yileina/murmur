@@ -2,6 +2,7 @@ package com.im.core.outbox.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.im.core.outbox.entity.Outbox;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -58,4 +59,21 @@ public interface OutboxMapper extends BaseMapper<Outbox> {
 
     @Select("SELECT MIN(created_at) FROM t_outbox WHERE status = 'PENDING'")
     LocalDateTime oldestPending();
+
+    // ---------- 死信处置 ----------
+
+    @Select("SELECT id, msg_id, conversation_id, seq, chat_type, status, retry_count, lease_until, "
+            + "next_retry_at, last_error, created_at, updated_at FROM t_outbox "
+            + "WHERE status = 'DEAD' ORDER BY updated_at DESC, id DESC LIMIT #{limit}")
+    List<Outbox> selectDead(@Param("limit") int limit);
+
+    /** 死信重投：重置为待处理（清重试计数/错误、立即到期重新入队） */
+    @Update("UPDATE t_outbox SET status = 'PENDING', retry_count = 0, next_retry_at = NOW(), "
+            + "lease_until = NULL, last_error = NULL, updated_at = NOW() "
+            + "WHERE id = #{id} AND status = 'DEAD'")
+    int retryDead(@Param("id") Long id);
+
+    /** 死信丢弃：仅允许删除 DEAD 行，避免误删在途任务 */
+    @Delete("DELETE FROM t_outbox WHERE id = #{id} AND status = 'DEAD'")
+    int deleteDead(@Param("id") Long id);
 }

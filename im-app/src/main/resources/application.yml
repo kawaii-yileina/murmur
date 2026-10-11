@@ -5,11 +5,6 @@ server:
 spring:
   application:
     name: im-server
-  cloud:
-    nacos:
-      discovery:
-        # 默认关闭：非集群模式启动不依赖 Nacos；集群模式用 application-cluster.yml 打开
-        enabled: ${NACOS_ENABLED:false}
   servlet:
     multipart:
       max-file-size: 200MB
@@ -39,6 +34,24 @@ spring:
           connectiontimeout: 5000
           timeout: 5000
           writetimeout: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 仅暴露只读端点；/actuator/** 仍受鉴权保护（需 JWT）
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      # 统一为全部指标（含 JVM/HTTP）附加节点标签，便于多节点区分
+      node: ${im.cluster.node-id:connector-local-1}
+  health:
+    mail:
+      # 邮件为可选功能（未配置 spring.mail.* 时不可用），不参与整体健康判定
+      enabled: false
 
 mybatis-plus:
   configuration:
@@ -77,6 +90,9 @@ hermes:
   session-timeout: 3600
 
 im:
+  admin:
+    # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
+    user-ids: ${IM_ADMIN_USER_IDS:}
   rate-limit:
     # 用户级发送限流：1 秒窗口内允许的最大消息条数（<=0 关闭）
     messages-per-second: 5
@@ -98,6 +114,14 @@ im:
     node-ttl-seconds: 30
     # 节点心跳间隔（毫秒）
     node-heartbeat-millis: 10000
+    # 优雅停机宽限期（毫秒）：先摘除节点存活标记，等待在途投递结束后再清理路由
+    # 需覆盖其他节点对存活标记/路由的短缓存（RouteRegistry 2s），故默认 5000ms；上限在代码中钳制为 10000ms
+    node-shutdown-grace-millis: 5000
+    # 指标采样间隔（毫秒）
+    metrics-interval-millis: 15000
+    # Outbox 死信处置接口（运维用，默认关闭；开启后仅 im.admin.user-ids 名单用户可访问）
+    outbox-admin:
+      enabled: ${OUTBOX_ADMIN_ENABLED:false}
     # Outbox 每批领取数量
     outbox-batch: 200
     # 同一会话 Outbox 在途（未 DONE）条数上限（窗口内近似有序，保证吞吐）

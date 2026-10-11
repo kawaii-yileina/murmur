@@ -4,6 +4,7 @@ import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.core.chat.registry.MultiConnectionRegistry;
+import com.im.core.cluster.ClusterStats;
 import com.im.core.cluster.MessageDedupService;
 import com.im.core.cluster.NodeContext;
 import com.im.core.cluster.config.ClusterProperties;
@@ -60,6 +61,7 @@ public class OutboxDispatcher {
     private final MessageDedupService dedupService;
     private final ObjectMapper objectMapper;
     private final ClusterProperties properties;
+    private final ClusterStats clusterStats;
 
     private ScheduledExecutorService scheduler;
     private volatile long lastAlertAt = 0;
@@ -107,6 +109,7 @@ public class OutboxDispatcher {
             List<String> recipients = payload.getRecipients();
             if (message == null || recipients == null || recipients.isEmpty()) {
                 outboxService.markDone(outbox.getId());
+                clusterStats.incDispatchSuccess();
                 return;
             }
 
@@ -172,6 +175,7 @@ public class OutboxDispatcher {
             }
 
             outboxService.markDone(outbox.getId());
+            clusterStats.incDispatchSuccess();
         } catch (Exception e) {
             handleFailure(outbox, e);
         }
@@ -182,9 +186,11 @@ public class OutboxDispatcher {
         // 仅记异常类型到日志（消息体可能出现在解析异常信息中，避免泄漏到日志）；详情落库 last_error（内部）
         String errType = e.getClass().getSimpleName();
         String err = e.getMessage();
+        clusterStats.incDispatchFailure();
         if (retryCount >= properties.getOutboxMaxRetry()) {
             log.error("Outbox {} exceeded max retry ({}), mark DEAD: {}", outbox.getId(), retryCount, errType);
             outboxService.markDead(outbox.getId(), retryCount, err);
+            clusterStats.incDispatchDead();
         } else {
             long backoff = Math.min(properties.getOutboxBackoffBaseMillis() * (1L << Math.min(retryCount, 16)),
                     properties.getOutboxBackoffMaxMillis());
