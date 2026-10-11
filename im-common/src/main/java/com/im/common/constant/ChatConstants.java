@@ -15,6 +15,8 @@ public final class ChatConstants {
     public static final String MSG_TYPE_VIDEO = "VIDEO";
     public static final String MSG_TYPE_FILE = "FILE";
     public static final String MSG_TYPE_VOICE = "VOICE";
+    /** 通话记录消息（持久化，区别于瞬时 CALL_* 信令） */
+    public static final String MSG_TYPE_CALL = "CALL";
     /** 输入中状态（瞬时事件，不落库、不投离线） */
     public static final String MSG_TYPE_TYPING = "TYPING";
 
@@ -66,6 +68,8 @@ public final class ChatConstants {
     public static final String HEADER_CALL_ID = "callId";
     /** 媒体类型：audio / video */
     public static final String HEADER_CALL_MEDIA = "media";
+    /** 通话记录状态：COMPLETED/REJECTED/CANCELED/MISSED/FAILED */
+    public static final String HEADER_CALL_STATUS = "callStatus";
     /** 拒绝/失败原因 */
     public static final String HEADER_CALL_REASON = "reason";
 

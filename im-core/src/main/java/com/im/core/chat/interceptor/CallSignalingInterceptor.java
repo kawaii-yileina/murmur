@@ -6,6 +6,7 @@ import com.elaina.chat.core.message.ChatMessage;
 import com.im.common.constant.ChatConstants;
 import com.im.core.call.CallService;
 import com.im.core.call.CallSignalRouter;
+import com.im.core.call.entity.CallSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -53,27 +54,50 @@ public class CallSignalingInterceptor implements MessageInterceptor {
                     return false;
                 }
                 case ChatConstants.CALL_RINGING:
-                    if (!callService.isParticipant(callId, from)) {
+                    if (!callService.isCallee(callId, from)) {
                         return false;
                     }
                     callService.onRinging(callId);
                     callSignalRouter.deliver(message);
                     return false;
                 case ChatConstants.CALL_ACCEPT:
-                    if (!callService.isParticipant(callId, from)) {
+                    if (!callService.isCallee(callId, from)) {
                         return false;
                     }
                     callService.onAccept(callId);
+                    // 通知主叫接听
                     callSignalRouter.deliver(message);
+                    // 通知被叫其余设备停止振铃（接听设备自身忽略该结束信号）
+                    callSignalRouter.deliver(acceptedElsewhere(message, from));
                     return false;
                 case ChatConstants.CALL_REJECT:
+                    if (!callService.isParticipant(callId, from)) {
+                        return false;
+                    }
+                    callService.terminate(callId, CallSession.STATUS_REJECTED);
+                    callSignalRouter.deliver(message);
+                    return false;
                 case ChatConstants.CALL_CANCEL:
+                    if (!callService.isParticipant(callId, from)) {
+                        return false;
+                    }
+                    callService.terminate(callId, CallSession.STATUS_CANCELED);
+                    callSignalRouter.deliver(message);
+                    return false;
                 case ChatConstants.CALL_HANGUP:
+                    if (!callService.isParticipant(callId, from)) {
+                        return false;
+                    }
+                    callService.terminate(callId,
+                            CallService.STATUS_ACTIVE.equals(callService.statusOf(callId))
+                                    ? CallSession.STATUS_COMPLETED : CallSession.STATUS_CANCELED);
+                    callSignalRouter.deliver(message);
+                    return false;
                 case ChatConstants.CALL_BUSY:
                     if (!callService.isParticipant(callId, from)) {
                         return false;
                     }
-                    callService.terminate(callId);
+                    callService.terminate(callId, null);
                     callSignalRouter.deliver(message);
                     return false;
                 case ChatConstants.CALL_OFFER:
@@ -99,6 +123,23 @@ public class CallSignalingInterceptor implements MessageInterceptor {
     @Override
     public boolean postSend(ChatMessage message, HandlerContext ctx, List<String> targets, List<String> successList) {
         return true;
+    }
+
+    /** 通知被叫其余设备"已被其他端接听"（结束振铃）；接听设备自身据 reason 忽略 */
+    private ChatMessage acceptedElsewhere(ChatMessage accept, String calleeId) {
+        ChatMessage m = ChatMessage.builder()
+                .type(ChatConstants.CALL_HANGUP)
+                .from(ChatConstants.SYSTEM_USER)
+                .to(calleeId)
+                .group(false)
+                .content("")
+                .build();
+        String callId = header(accept, ChatConstants.HEADER_CALL_ID);
+        if (callId != null) {
+            m.addHeader(ChatConstants.HEADER_CALL_ID, callId);
+        }
+        m.addHeader(ChatConstants.HEADER_CALL_REASON, "accepted_elsewhere");
+        return m;
     }
 
     /** 构造回给主叫的 SYSTEM 信令（如忙线/拒绝） */

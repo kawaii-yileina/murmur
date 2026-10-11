@@ -42,6 +42,8 @@ public class CallService {
     private static final String BUSY_KEY = "im:call:busy:";
     private static final String PENDING_KEY = "im:call:pending";
     private static final String ACTIVE_KEY = "im:call:active";
+    /** 终态标记（单点发布结束事件，避免双方同时结束重复发布） */
+    private static final String ENDED_KEY = "im:call:ended:";
     /** 通话状态/忙线 TTL：ACTIVE 期间由定时续期维持，避免长通话过期 */
     private static final long CALL_TTL_SECONDS = 3600;
     /** ACTIVE 通话最大寿命（续期上限），超过视为异常残留并清理 */
@@ -64,6 +66,7 @@ public class CallService {
      */
     private static final RedisScript<Long> TIMEOUT_TERMINATE = RedisScript.of(
             "local st = redis.call('HGET', KEYS[1], 'status') "
+            + "if not st then return 0 end "
             + "if st == 'ACTIVE' then return 0 end "
             + "if redis.call('GET', KEYS[2]) == ARGV[1] then redis.call('DEL', KEYS[2]) end "
             + "if redis.call('GET', KEYS[3]) == ARGV[1] then redis.call('DEL', KEYS[3]) end "
@@ -73,6 +76,7 @@ public class CallService {
 
     private final StringRedisTemplate redis;
     private final FriendMapper friendMapper;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Value("${im.call.ring-timeout-seconds:30}")
     private long ringTimeoutSeconds;
@@ -128,7 +132,12 @@ public class CallService {
 
     /** 被叫接听：置 ACTIVE，移出超时队列、加入续期集合（忙线保留并续期至通话结束） */
     public void onAccept(String callId) {
+        if (STATUS_ACTIVE.equals(statusOf(callId))) {
+            return; // 重复 ACCEPT：忽略，避免重写接听时间/重复通知
+        }
         if (updateStatus(callId, STATUS_ACTIVE)) {
+            redis.opsForHash().put(CALL_KEY + callId, "answeredAt", String.valueOf(System.currentTimeMillis()));
+            redis.expire(CALL_KEY + callId, CALL_TTL_SECONDS, TimeUnit.SECONDS);
             redis.opsForZSet().remove(PENDING_KEY, callId);
             redis.opsForZSet().add(ACTIVE_KEY, callId, System.currentTimeMillis());
         }
@@ -153,33 +162,57 @@ public class CallService {
         }
         long now = System.currentTimeMillis();
         for (String callId : active) {
-            Map<Object, Object> state = redis.opsForHash().entries(CALL_KEY + callId);
-            if (state == null || state.isEmpty()) {
-                redis.opsForZSet().remove(ACTIVE_KEY, callId);
-                continue;
-            }
-            Object createdAt = state.get("createdAt");
-            long created = createdAt == null ? now : Long.parseLong(String.valueOf(createdAt));
-            if (now - created > CALL_MAX_SECONDS * 1000) {
-                terminate(callId);
-                continue;
-            }
-            if (STATUS_ACTIVE.equals(state.get("status"))) {
-                touch(callId);
-            } else {
-                redis.opsForZSet().remove(ACTIVE_KEY, callId);
+            try {
+                Map<Object, Object> state = redis.opsForHash().entries(CALL_KEY + callId);
+                if (state == null || state.isEmpty()) {
+                    redis.opsForZSet().remove(ACTIVE_KEY, callId);
+                    continue;
+                }
+                long created = parseLong(state.get("createdAt"), now);
+                if (now - created > CALL_MAX_SECONDS * 1000) {
+                    terminate(callId);
+                    continue;
+                }
+                if (STATUS_ACTIVE.equals(state.get("status"))) {
+                    touch(callId);
+                } else {
+                    redis.opsForZSet().remove(ACTIVE_KEY, callId);
+                }
+            } catch (Exception e) {
+                log.debug("Renew call {} failed: {}", callId, e.getMessage());
             }
         }
     }
 
-    /** 通话结束（拒接/取消/挂断/忙线/超时）：按 callId 归属清理状态与忙线 */
-    public void terminate(String callId) {
+    /** 通话结束：单点发布结束事件（落通话记录 + 下发 CALL 条目）并按 callId 归属清理状态与忙线 */
+    public void terminate(String callId, String status) {
         if (isBlank(callId)) {
             return;
         }
         Map<Object, Object> state = redis.opsForHash().entries(CALL_KEY + callId);
-        Object caller = state.get("callerId");
-        Object callee = state.get("calleeId");
+        if (state != null && !state.isEmpty()) {
+            boolean first = claimEnded(callId);
+            if (first && !isBlank(status)) {
+                publishCallEnded(callId, state, status);
+            }
+        }
+        cleanup(callId, state);
+    }
+
+    /** 后备清理（异常残留等）：无有效状态时不发布事件 */
+    public void terminate(String callId) {
+        terminate(callId, com.im.core.call.entity.CallSession.STATUS_FAILED);
+    }
+
+    /** 抢占终态发布权（60s 内仅一次） */
+    private boolean claimEnded(String callId) {
+        return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(
+                ENDED_KEY + callId, "1", 60, TimeUnit.SECONDS));
+    }
+
+    private void cleanup(String callId, Map<Object, Object> state) {
+        Object caller = state == null ? null : state.get("callerId");
+        Object callee = state == null ? null : state.get("calleeId");
         if (caller != null) {
             deleteIfMatch(BUSY_KEY + caller, callId);
         }
@@ -191,17 +224,48 @@ public class CallService {
         redis.opsForZSet().remove(ACTIVE_KEY, callId);
     }
 
+    private void publishCallEnded(String callId, Map<Object, Object> state, String status) {
+        String caller = str(state.get("callerId"));
+        String callee = str(state.get("calleeId"));
+        String media = str(state.get("media"));
+        long created = parseLong(state.get("createdAt"), System.currentTimeMillis());
+        long answered = parseLong(state.get("answeredAt"), 0L);
+        long now = System.currentTimeMillis();
+        long duration = answered > 0 ? Math.max(0L, (now - answered) / 1000) : 0L;
+        eventPublisher.publishEvent(new CallEndedEvent(callId, caller, callee, media, status, duration, created, answered, now));
+    }
+
+    private long parseLong(Object v, long def) {
+        if (v == null) {
+            return def;
+        }
+        try {
+            return Long.parseLong(String.valueOf(v));
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
     /**
-     * 超时终结（原子，仅非 ACTIVE 生效）：返回 true 表示本次已终结（可通知双方），
-     * false 表示已接听/已不存在（不处理）。用于消除"刚接听即被超时拆掉"的竞态。
+     * 超时终结：读状态→非 ACTIVE 才原子清理；清理成功则发布 MISSED 结束事件。
+     * 返回 true 表示本次已终结（调度器据此通知双方）。消除"刚接听即被超时拆掉"的竞态。
      */
-    public boolean terminateTimeout(String callId, String callerId, String calleeId) {
+    public boolean finishTimeout(String callId) {
         if (isBlank(callId)) {
             return false;
         }
+        Map<Object, Object> state = redis.opsForHash().entries(CALL_KEY + callId);
+        if (state == null || state.isEmpty() || STATUS_ACTIVE.equals(state.get("status"))) {
+            return false;
+        }
+        String caller = str(state.get("callerId"));
+        String callee = str(state.get("calleeId"));
         Long r = redis.execute(TIMEOUT_TERMINATE,
-                List.of(CALL_KEY + callId, BUSY_KEY + callerId, BUSY_KEY + calleeId), callId);
+                List.of(CALL_KEY + callId, BUSY_KEY + caller, BUSY_KEY + callee), callId);
         if (r != null && r == 1L) {
+            if (claimEnded(callId)) {
+                publishCallEnded(callId, state, com.im.core.call.entity.CallSession.STATUS_MISSED);
+            }
             redis.opsForZSet().remove(PENDING_KEY, callId);
             redis.opsForZSet().remove(ACTIVE_KEY, callId);
             return true;
@@ -228,6 +292,21 @@ public class CallService {
     public List<String> dueCallIds(long nowMillis) {
         Set<String> members = redis.opsForZSet().rangeByScore(PENDING_KEY, 0, nowMillis);
         return members == null ? List.of() : List.copyOf(members);
+    }
+
+    /** 校验 userId 是否为该通话的被叫 */
+    public boolean isCallee(String callId, String userId) {
+        if (isBlank(callId) || isBlank(userId)) {
+            return false;
+        }
+        Object callee = redis.opsForHash().get(CALL_KEY + callId, "calleeId");
+        return userId.equals(str(callee));
+    }
+
+    /** 当前通话状态（无则 null） */
+    public String statusOf(String callId) {
+        Object st = redis.opsForHash().get(CALL_KEY + callId, "status");
+        return st == null ? null : String.valueOf(st);
     }
 
     /** 通话当前状态 Hash（无记录返回空 Map） */

@@ -14,4 +14,6 @@ data:
   ROCKETMQ_NAMESRV: "rmqnamesrv:9876"
   # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
   IM_ADMIN_USER_IDS: ""
+  # 音视频通话开关（false 时丢弃通话信令）
+  IM_CALL_ENABLED: "true"
   JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseContainerSupport -XX:+ExitOnOutOfMemoryError"

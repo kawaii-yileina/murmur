@@ -95,6 +95,9 @@ services:
       IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
       # 发送限流（条/秒/用户）：生产按需调整；压测可设为 0 关闭
       IM_RATE_LIMIT_MESSAGES_PER_SECOND: ${IM_RATE_LIMIT_MPS:-5}
+      # Hermes(AI) API Key：未配置时 AI 不可用（邮件/AI 均为可选）
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
     ports:
       - "8190:8180"
       - "9190:9100"
@@ -126,6 +129,9 @@ services:
       IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
       # 发送限流（条/秒/用户）：生产按需调整；压测可设为 0 关闭
       IM_RATE_LIMIT_MESSAGES_PER_SECOND: ${IM_RATE_LIMIT_MPS:-5}
+      # Hermes(AI) API Key：未配置时 AI 不可用（邮件/AI 均为可选）
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
     ports:
       - "8191:8180"
       - "9191:9100"

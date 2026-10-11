@@ -51,8 +51,8 @@ public class CallTimeoutScheduler {
                 }
                 Object callerId = state.get("callerId");
                 Object calleeId = state.get("calleeId");
-                // 原子终结：仅当仍未接听才清理（避免与刚接听竞态）
-                if (!callService.terminateTimeout(callId, str(callerId), str(calleeId))) {
+                // 原子终结（非 ACTIVE 才清理）；成功后发布 MISSED 记录
+                if (!callService.finishTimeout(callId)) {
                     continue;
                 }
                 if (callerId != null) {

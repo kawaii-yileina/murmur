@@ -216,6 +216,16 @@ public class OutboxService {
         }
     }
 
+    /** 通话记录会话预览占位：__CALL__:media:status:duration，前端按 i18n 渲染 */
+    private String callPreview(ChatMessage msg) {
+        String media = getHeader(msg, ChatConstants.HEADER_CALL_MEDIA);
+        String status = getHeader(msg, ChatConstants.HEADER_CALL_STATUS);
+        String duration = getHeader(msg, ChatConstants.HEADER_DURATION);
+        return "__CALL__:" + (media == null || media.isBlank() ? "audio" : media)
+                + ":" + (status == null ? "" : status)
+                + ":" + (duration == null || duration.isBlank() ? "0" : duration);
+    }
+
     private String getHeader(ChatMessage msg, String key) {
         if (msg.getHeaders() == null) return "";
         Object value = msg.getHeaders().get(key);
@@ -239,6 +249,7 @@ public class OutboxService {
             case "VIDEO" -> "[视频]";
             case "VOICE" -> "[语音] " + Math.round(parseDuration(msg)) + "\"";
             case "CONTACT_CARD" -> "[个人名片]";
+            case ChatConstants.MSG_TYPE_CALL -> callPreview(msg);
             case "FILE" -> {
                 String name = getHeader(msg, "originalName");
                 String text = "[文件] " + name;

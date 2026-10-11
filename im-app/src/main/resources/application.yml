@@ -86,7 +86,7 @@ hermes:
   native-api: true
   api-type: openai
   base-url: http://localhost:8642/v1
-  api-key: fe2c6a612110c2cac9a3f7ab016481b9c3d8cda8e324adea77c5dd126a3ce613
+  api-key: ${HERMES_API_KEY:}
   model: hermes-agent
   max-tokens: 4096
   temperature: 0.7

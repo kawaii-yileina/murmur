@@ -137,6 +137,9 @@ public class MessageService {
         if (!msg.getSenderId().equals(userId)) {
             throw new BizException("只能撤回自己发送的消息");
         }
+        if (ChatConstants.MSG_TYPE_CALL.equals(msg.getMsgType())) {
+            throw new BizException("通话记录不支持撤回");
+        }
         if (MessageType.RECALL.getType().equals(msg.getMsgType())) {
             return msg;
         }

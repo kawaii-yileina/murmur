@@ -29,7 +29,7 @@ public class RateLimitInterceptor implements MessageInterceptor {
 
     private static final String KEY_PREFIX = "im:ratelimit:msg:";
     private static final Set<String> SKIP_TYPES = Set.of(
-            ChatConstants.SYSTEM_USER, "HEARTBEAT", ChatConstants.MSG_TYPE_TYPING);
+            ChatConstants.SYSTEM_USER, "HEARTBEAT", ChatConstants.MSG_TYPE_TYPING, ChatConstants.MSG_TYPE_CALL);
 
     private final StringRedisTemplate redisTemplate;
     @Value("${im.rate-limit.messages-per-second:5}")
