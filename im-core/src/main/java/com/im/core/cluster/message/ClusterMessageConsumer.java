@@ -3,6 +3,7 @@ package com.im.core.cluster.message;
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.im.common.constant.ChatConstants;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.cluster.ClusterStats;
 import com.im.core.cluster.MessageDedupService;
@@ -119,7 +120,8 @@ public class ClusterMessageConsumer {
             Connection connection = connectionRegistry.getConnection(target.getUserId(), target.getDeviceId());
             if (connection != null && connection.isActive()) {
                 connection.write(delivered);
-            } else {
+            } else if (!ChatConstants.isCallSignal(delivered.getType())) {
+                // 通话信令为瞬时消息：目标设备离线直接丢弃（不落离线，避免重连后幽灵来电）
                 offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
                 log.debug("Target offline on this node, stored offline: user={}, device={}",
                         target.getUserId(), target.getDeviceId());
@@ -145,7 +147,9 @@ public class ClusterMessageConsumer {
                 if (dedupService.isProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId())) {
                     continue;
                 }
-                offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
+                if (!ChatConstants.isCallSignal(delivered.getType())) {
+                    offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
+                }
                 dedupService.markProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId());
             }
         } catch (Exception e) {

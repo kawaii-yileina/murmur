@@ -48,4 +48,34 @@ public final class ChatConstants {
     public static final String RECALL_PREVIEW_SELF = "__RECALL_SELF__";
     /** 会话列表预览占位：撤回者是对方 */
     public static final String RECALL_PREVIEW_OTHER = "__RECALL_OTHER__";
+
+    // ---------- 音视频通话信令（瞬时消息：不落库、不进离线、不计限流） ----------
+
+    public static final String CALL_INVITE = "CALL_INVITE";
+    public static final String CALL_RINGING = "CALL_RINGING";
+    public static final String CALL_ACCEPT = "CALL_ACCEPT";
+    public static final String CALL_REJECT = "CALL_REJECT";
+    public static final String CALL_CANCEL = "CALL_CANCEL";
+    public static final String CALL_BUSY = "CALL_BUSY";
+    public static final String CALL_OFFER = "CALL_OFFER";
+    public static final String CALL_ANSWER = "CALL_ANSWER";
+    public static final String CALL_ICE = "CALL_ICE";
+    public static final String CALL_HANGUP = "CALL_HANGUP";
+    public static final String CALL_TIMEOUT = "CALL_TIMEOUT";
+
+    public static final String HEADER_CALL_ID = "callId";
+    /** 媒体类型：audio / video */
+    public static final String HEADER_CALL_MEDIA = "media";
+    /** 拒绝/失败原因 */
+    public static final String HEADER_CALL_REASON = "reason";
+
+    /** 合法的通话信令类型白名单（避免以前缀放行任意自造类型绕过限流等） */
+    private static final java.util.Set<String> CALL_TYPES = java.util.Set.of(
+            CALL_INVITE, CALL_RINGING, CALL_ACCEPT, CALL_REJECT, CALL_CANCEL,
+            CALL_BUSY, CALL_OFFER, CALL_ANSWER, CALL_ICE, CALL_HANGUP, CALL_TIMEOUT);
+
+    /** 是否为通话信令类型（瞬时，需从持久化/离线/限流中排除） */
+    public static boolean isCallSignal(String type) {
+        return type != null && CALL_TYPES.contains(type);
+    }
 }

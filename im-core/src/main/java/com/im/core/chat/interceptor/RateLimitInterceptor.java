@@ -43,7 +43,8 @@ public class RateLimitInterceptor implements MessageInterceptor {
     public boolean preSend(ChatMessage message, HandlerContext ctx, List<String> targets) {
         String type = message.getType();
         String from = message.getFrom();
-        if (maxPerSecond <= 0 || from == null || from.isBlank() || SKIP_TYPES.contains(type)) {
+        if (maxPerSecond <= 0 || from == null || from.isBlank() || SKIP_TYPES.contains(type)
+                || ChatConstants.isCallSignal(type)) {
             return true;
         }
 

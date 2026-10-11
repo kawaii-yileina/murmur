@@ -35,7 +35,7 @@ public class MessagePersistHook implements MessagePersistentHook {
 
     @Override
     public void afterSend(ChatMessage msg, List<String> recipients, List<String> successList) {
-        if (SKIP_TYPES.contains(msg.getType())) {
+        if (SKIP_TYPES.contains(msg.getType()) || ChatConstants.isCallSignal(msg.getType())) {
             return;
         }
         Long senderId = parseLong(msg.getFrom());
