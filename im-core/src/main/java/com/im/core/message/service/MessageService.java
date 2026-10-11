@@ -46,10 +46,11 @@ public class MessageService {
     private static final int MAX_SYNC_LIMIT = 200;
 
     /**
-     * 不落库的 header 键：内部关联与 ACK 回执字段，以及已有独立列的 replyTo / mentions。
+     * 不落库的 header 键：内部 ACK 回执字段，以及已有独立列的 replyTo / mentions。
+     * 注意：clientMsgId 需保留落库——客户端断线丢 ACK 后，凭同步/历史返回的 clientMsgId
+     * 把本地乐观消息与服务端副本对齐，避免重复气泡。
      */
     private static final Set<String> NON_PERSISTED_HEADER_KEYS = Set.of(
-            ChatConstants.HEADER_CLIENT_MSG_ID,
             ChatConstants.HEADER_ACK,
             ChatConstants.HEADER_SERVER_MSG_ID,
             ChatConstants.HEADER_DELIVERED,
