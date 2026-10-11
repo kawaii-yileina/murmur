@@ -92,6 +92,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       ROCKETMQ_NAMESRV: rmqnamesrv:9876
+      IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
+      # 发送限流（条/秒/用户）：生产按需调整；压测可设为 0 关闭
+      IM_RATE_LIMIT_MESSAGES_PER_SECOND: ${IM_RATE_LIMIT_MPS:-5}
     ports:
       - "8190:8180"
       - "9190:9100"
@@ -120,6 +123,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       ROCKETMQ_NAMESRV: rmqnamesrv:9876
+      IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
+      # 发送限流（条/秒/用户）：生产按需调整；压测可设为 0 关闭
+      IM_RATE_LIMIT_MESSAGES_PER_SECOND: ${IM_RATE_LIMIT_MPS:-5}
     ports:
       - "8191:8180"
       - "9191:9100"
