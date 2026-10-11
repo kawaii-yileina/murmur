@@ -232,6 +232,11 @@ public class RouteRegistry {
 
     // ---------- 节点存活 ----------
 
+    /** 本节点标识 */
+    public String nodeId() {
+        return nodeContext.getNodeId();
+    }
+
     /** 上报本节点存活 */
     public void heartbeatNode() {
         Map<String, Object> payload = new LinkedHashMap<>();

@@ -1,0 +1,17 @@
+# 非敏感配置。敏感项（JWT_SECRET、数据库密码）走 Secret（见 11-secret.example.yaml）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: im-server-config
+  namespace: im
+data:
+  SPRING_PROFILES_ACTIVE: "cluster"
+  # 基础设施地址按实际环境修改（示例为同集群内的服务名）
+  SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
+  SPRING_DATASOURCE_USERNAME: "im_app"
+  SPRING_DATA_REDIS_HOST: "redis"
+  SPRING_DATA_REDIS_PORT: "6379"
+  ROCKETMQ_NAMESRV: "rmqnamesrv:9876"
+  # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
+  IM_ADMIN_USER_IDS: ""
+  JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseContainerSupport -XX:+ExitOnOutOfMemoryError"

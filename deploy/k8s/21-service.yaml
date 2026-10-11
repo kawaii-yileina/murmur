@@ -1,0 +1,34 @@
+# 无头服务：为 StatefulSet 提供稳定 DNS（im-server-0.im-server-headless 等）
+apiVersion: v1
+kind: Service
+metadata:
+  name: im-server-headless
+  namespace: im
+spec:
+  clusterIP: None
+  selector:
+    app: im-server
+  ports:
+    - name: http
+      port: 8180
+      targetPort: http
+    - name: ws
+      port: 9100
+      targetPort: ws
+---
+# 负载均衡服务：供 Ingress 转发（REST 与 WebSocket 两个端口）
+apiVersion: v1
+kind: Service
+metadata:
+  name: im-server
+  namespace: im
+spec:
+  selector:
+    app: im-server
+  ports:
+    - name: http
+      port: 8180
+      targetPort: http
+    - name: ws
+      port: 9100
+      targetPort: ws

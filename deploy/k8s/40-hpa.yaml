@@ -1,0 +1,48 @@
+# 自动扩缩容：先按 CPU/内存（HPA v2）。
+# 扩展点：如需按 IM 业务指标（活跃连接数 im.connections.online、Outbox 积压 im.outbox.pending、
+# 消费失败等）扩缩容，接入 Prometheus Adapter 后，在 metrics 下增加 type: Pods/Object 的外部指标即可
+# （指标已由 ClusterMetricsBinder 暴露在 /actuator/metrics，需 expose prometheus 或将 actuator 接入 scrape）。
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: im-server
+  namespace: im
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: im-server
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # 高并发突增：快速扩容（无稳定窗口，单次最多翻倍或 +2）
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      # 缩容保守：5 分钟稳定窗口 + 每 2 分钟最多缩 25%，避免抖动并给连接排空留时间
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 120

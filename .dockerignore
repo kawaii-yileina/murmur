@@ -1,0 +1,9 @@
+# 仅打包运行所需文件，尽量缩小构建上下文
+.git
+.gitignore
+**/target/classes
+**/target/test-classes
+**/src
+**/target/*.original
+*.out
+docs

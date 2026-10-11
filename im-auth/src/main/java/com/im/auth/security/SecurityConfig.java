@@ -56,7 +56,8 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers("/api/files/local/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                // 运维指标仅管理员（ROLE_ADMIN 由 JwtAuthenticationFilter 依 im.admin.user-ids 授予）
+                // 容器探针：健康检查匿名放行（不暴露细节）；指标仍仅管理员
+                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

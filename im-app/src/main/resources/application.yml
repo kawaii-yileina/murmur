@@ -44,6 +44,9 @@ management:
   endpoint:
     health:
       show-details: never
+      probes:
+        # 暴露 /actuator/health/liveness 与 /actuator/health/readiness（容器探针；排空时 readiness 转 REFUSING_TRAFFIC）
+        enabled: true
   metrics:
     tags:
       # 统一为全部指标（含 JVM/HTTP）附加节点标签，便于多节点区分

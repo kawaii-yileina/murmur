@@ -1,0 +1,39 @@
+# 入口：Nginx Ingress；/api 与 /actuator 走 HTTP(8180)，其余（含根路径）走 WebSocket(9100)。
+# 客户端：REST base = /api；WS 地址 = ws(s)://<host>/?token=...&deviceId=...&deviceType=web
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: im-server
+  namespace: im
+  annotations:
+    # WebSocket 长连接：放宽读写超时；文件上传放大 body
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: im.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: im-server
+                port:
+                  name: http
+          - path: /actuator
+            pathType: Prefix
+            backend:
+              service:
+                name: im-server
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: im-server
+                port:
+                  name: ws

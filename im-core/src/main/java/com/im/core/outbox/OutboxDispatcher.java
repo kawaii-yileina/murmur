@@ -7,6 +7,7 @@ import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.cluster.ClusterStats;
 import com.im.core.cluster.MessageDedupService;
 import com.im.core.cluster.NodeContext;
+import com.im.core.cluster.NodeDrainingEvent;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.message.ClusterMessageProducer;
 import com.im.core.cluster.message.ClusterTarget;
@@ -22,6 +23,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -66,6 +68,15 @@ public class OutboxDispatcher {
 
     private ScheduledExecutorService scheduler;
     private volatile long lastAlertAt = 0;
+    /** 节点排空中：停止领取新任务，让本节点在途任务尽快清空，避免下线时新任务卡在本节点 */
+    private volatile boolean draining = false;
+
+    /** 收到排空事件后停止领取新任务（在途已领取任务由本线程处理完或随进程退出，租约过期后由其他节点回收） */
+    @EventListener(NodeDrainingEvent.class)
+    void onDraining(NodeDrainingEvent event) {
+        this.draining = true;
+        log.info("Outbox dispatcher draining: stop claiming new tasks (node={})", event.nodeId());
+    }
 
     @PostConstruct
     public void start() {
@@ -96,6 +107,9 @@ public class OutboxDispatcher {
     }
 
     void poll() {
+        if (draining) {
+            return;
+        }
         List<Outbox> claimed = outboxService.claim(properties.getOutboxBatch(), properties.getOutboxLeaseSeconds());
         for (Outbox outbox : claimed) {
             dispatchOne(outbox);

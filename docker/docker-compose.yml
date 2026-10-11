@@ -66,6 +66,77 @@ services:
       # 从而 broker initialize() 失败退出，故此处不挂载日志/store 卷（容器内目录本身可写）
       - ./rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
 
+  # ---- IM 应用（集群模式，两实例）----
+  # 前置：先在仓库根执行 `mvn -q -DskipTests package`（生成 im-app/target/*.jar）
+  im-server-1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: im-server:local
+    container_name: im-server-1
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rmqbroker:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: cluster
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 或环境变量设置 JWT_SECRET（>=32 字节）}
+      NODE_ID: im-server-1
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      ROCKETMQ_NAMESRV: rmqnamesrv:9876
+    ports:
+      - "8190:8180"
+      - "9190:9100"
+
+  im-server-2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: im-server:local
+    container_name: im-server-2
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rmqbroker:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: cluster
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 或环境变量设置 JWT_SECRET（>=32 字节）}
+      NODE_ID: im-server-2
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      ROCKETMQ_NAMESRV: rmqnamesrv:9876
+    ports:
+      - "8191:8180"
+      - "9191:9100"
+
+  # ---- 网关（Nginx）：单入口，/api -> REST，其余 -> WebSocket ----
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: im-gateway
+    restart: unless-stopped
+    depends_on:
+      - im-server-1
+      - im-server-2
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+
 volumes:
   im-mysql-data:
   im-redis-data:

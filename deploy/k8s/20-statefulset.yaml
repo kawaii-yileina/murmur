@@ -1,0 +1,75 @@
+# 应用工作负载：StatefulSet（而非 Deployment）
+#
+# 原因：本服务以「节点身份」参与分布式投递——nodeId 同时决定 Redis 连接路由的归属、
+# RocketMQ 消费组（im-dispatch-{nodeId}）与定向 Tag（NODE_{nodeId}）。Deployment 的 Pod 名随机，
+# 扩缩容会不断产生新 nodeId/新消费组与遗留 Tag，导致消费组泄漏、发往已消失节点的消息长期滞留。
+# StatefulSet 提供稳定且唯一的 Pod 名（im-server-0/1/...），作为 nodeId：同一序号重启复用同一
+# 消费组/Tag，可消费宕机期间发往该 Tag 的消息，避免静默滞留。
+#
+# 节点无状态（路由在 Redis），因此不挂载数据卷；扩缩容由 HPA 驱动（见 40-hpa.yaml）。
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: im-server
+  namespace: im
+spec:
+  serviceName: im-server-headless
+  replicas: 2
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: im-server
+  template:
+    metadata:
+      labels:
+        app: im-server
+    spec:
+      # 需 > preStop(8s) + 排空宽限(node-shutdown-grace-millis, 默认 5s) + 关闭耗时
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: im-server
+          image: im-server:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8180
+            - name: ws
+              containerPort: 9100
+          env:
+            # nodeId = Pod 名（稳定唯一）：im-server-0 / im-server-1 ...
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: im-server-config
+            - secretRef:
+                name: im-server-secret
+          # 就绪探针：排空时应用把 readiness 置为 REFUSING_TRAFFIC，探针失败 → 从 Endpoints 摘除、停止新流量
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+          lifecycle:
+            preStop:
+              # 先让就绪探针失败、Endpoints 摘除生效，再收到 SIGTERM 触发应用排空（摘节点标记→宽限→清路由）
+              exec:
+                command: ["sh", "-c", "sleep 8"]
