@@ -97,6 +97,15 @@ im:
     # 全局缓存（Spring Cache + Redis）开关与默认 TTL（秒）；关闭时注解降级为 NoOp
     enabled: ${IM_CACHE_ENABLED:true}
     ttl-seconds: ${IM_CACHE_TTL_SECONDS:300}
+  asr:
+    # 语音转文字（本地 ASR HTTP 服务，默认关闭；模型由 ASR 服务侧运行期挂载）
+    enabled: ${IM_ASR_ENABLED:false}
+    url: ${IM_ASR_URL:}
+    path: ${IM_ASR_PATH:/inference}
+    model: ${IM_ASR_MODEL:}
+    language: ${IM_ASR_LANGUAGE:zh}
+    timeout-seconds: ${IM_ASR_TIMEOUT_SECONDS:60}
+    max-audio-bytes: ${IM_ASR_MAX_AUDIO_BYTES:15728640}
   admin:
     # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
     user-ids: ${IM_ADMIN_USER_IDS:}

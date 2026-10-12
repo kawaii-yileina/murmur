@@ -128,6 +128,11 @@ services:
       IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-false}
       TURN_URLS: ${TURN_URLS:-turn:localhost:3478?transport=udp}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-im-dev-turn-secret}
+      # 语音转文字（本地 ASR HTTP 服务）：默认关闭
+      IM_ASR_ENABLED: ${IM_ASR_ENABLED:-false}
+      IM_ASR_URL: ${IM_ASR_URL:-}
+      IM_ASR_PATH: ${IM_ASR_PATH:-/inference}
+      IM_ASR_LANGUAGE: ${IM_ASR_LANGUAGE:-zh}
     ports:
       - "8190:8180"
       - "9190:9100"
@@ -166,6 +171,11 @@ services:
       IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-false}
       TURN_URLS: ${TURN_URLS:-turn:localhost:3478?transport=udp}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-im-dev-turn-secret}
+      # 语音转文字（本地 ASR HTTP 服务）：默认关闭
+      IM_ASR_ENABLED: ${IM_ASR_ENABLED:-false}
+      IM_ASR_URL: ${IM_ASR_URL:-}
+      IM_ASR_PATH: ${IM_ASR_PATH:-/inference}
+      IM_ASR_LANGUAGE: ${IM_ASR_LANGUAGE:-zh}
     ports:
       - "8191:8180"
       - "9191:9100"

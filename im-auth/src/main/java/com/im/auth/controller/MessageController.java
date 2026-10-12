@@ -1,6 +1,7 @@
 package com.im.auth.controller;
 
 import com.im.common.model.Result;
+import com.im.core.asr.VoiceTranscriptionService;
 import com.im.core.conversation.entity.Conversation;
 import com.im.core.conversation.service.ConversationService;
 import com.im.core.message.dto.MessageSyncResult;
@@ -22,6 +23,7 @@ public class MessageController {
     private final MessageService messageService;
     private final ConversationService conversationService;
     private final OnlineStatusService onlineStatusService;
+    private final VoiceTranscriptionService voiceTranscriptionService;
 
     @GetMapping("/history")
     public Result<List<Message>> getHistory(
@@ -65,6 +67,14 @@ public class MessageController {
         }
         ;
         return Result.ok(messageService.recallMessage(Long.parseLong(userId), request.getMsgId()));
+    }
+
+    /** 语音转文字（本地 ASR）：按 msgId 转写语音消息，仅返回文本不落库。 */
+    @PostMapping("/voice/transcribe")
+    public Result<Map<String, String>> transcribeVoice(@RequestAttribute("userId") String userId,
+                                                       @RequestBody TranscribeRequest request) {
+        String text = voiceTranscriptionService.transcribe(request.getMsgId(), Long.parseLong(userId));
+        return Result.ok(Map.of("text", text));
     }
 
     @PutMapping("/conversations/read")
@@ -122,6 +132,11 @@ public class MessageController {
 
     @Data
     public static class RecallRequest {
+        private String msgId;
+    }
+
+    @Data
+    public static class TranscribeRequest {
         private String msgId;
     }
 }

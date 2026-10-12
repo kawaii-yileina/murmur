@@ -122,6 +122,14 @@ public class MessageService {
         return mentions != null ? String.valueOf(mentions) : null;
     }
 
+    /** 按 msgId 查询单条消息（无则返回 null） */
+    public Message getByMsgId(String msgId) {
+        if (msgId == null || msgId.isBlank()) {
+            return null;
+        }
+        return messageMapper.selectOne(new LambdaQueryWrapper<Message>().eq(Message::getMsgId, msgId));
+    }
+
     /**
      * 撤回消息：仅本人、发送后 2 分钟内、未撤回过的消息可撤回。
      * 撤回后 msg_type 置为 RECALL 并清空内容，同时向会话内其他成员推送
