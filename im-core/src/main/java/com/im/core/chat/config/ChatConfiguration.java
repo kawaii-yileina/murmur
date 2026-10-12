@@ -9,6 +9,7 @@ import com.elaina.chat.core.registry.InterceptorRegistry;
 import com.im.common.constant.ChatConstants;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.chat.handler.HeartbeatHandler;
+import com.im.core.chat.handler.InboundMessageGuardHandler;
 import com.im.core.chat.handler.MediaMessageHandler;
 import com.im.core.chat.handler.MessageIdAssignHandler;
 import com.im.core.chat.handler.TextMessageHandler;
@@ -30,6 +31,7 @@ public class ChatConfiguration implements ChatConfigurer {
     private final TextMessageHandler textMessageHandler;
     private final MediaMessageHandler mediaMessageHandler;
     private final HeartbeatHandler heartbeatHandler;
+    private final InboundMessageGuardHandler inboundMessageGuardHandler;
     private final StringRedisTemplate redisTemplate;
     private final MultiConnectionRegistry connectionRegistry;
     private final CallService callService;
@@ -41,6 +43,7 @@ public class ChatConfiguration implements ChatConfigurer {
 
     @Override
     public void addHandlers(HandlerRegistry registry) {
+        registry.addHandler(inboundMessageGuardHandler);
         registry.addHandler(messageIdAssignHandler);
         registry.addHandler(heartbeatHandler);
         registry.addHandler(textMessageHandler);

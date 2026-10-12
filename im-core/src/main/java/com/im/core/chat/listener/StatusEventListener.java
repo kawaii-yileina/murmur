@@ -6,6 +6,10 @@ import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.gateway.MessageGateway;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.common.utils.JwtUtils;
+import com.im.common.constant.ChatConstants;
+import com.im.core.call.CallService;
+import com.im.core.call.CallSignalRouter;
+import com.im.core.call.entity.CallSession;
 import com.im.core.cluster.ConnAttributes;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.route.RouteRegistry;
@@ -18,6 +22,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -31,6 +36,8 @@ public class StatusEventListener implements ChatEventListener {
     private final UserService userService;
     private final RouteRegistry routeRegistry;
     private final ClusterProperties clusterProperties;
+    private final CallService callService;
+    private final CallSignalRouter callSignalRouter;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -66,6 +73,43 @@ public class StatusEventListener implements ChatEventListener {
         if (!hasAnyOnlineDevice(userId)) {
             onlineStatusService.userOffline(userId);
             notifyFriends(userId, "offline:" + userId);
+            endCallOnOffline(userId);
+        }
+    }
+
+    /**
+     * 用户全部设备离线时结束其进行中的通话并通知对端，避免对端一直振铃/幽灵通话。
+     * 状态：通话已接通(ACTIVE)→COMPLETED；主叫未接通即掉线→CANCELED；被叫未接即掉线→MISSED。
+     */
+    private void endCallOnOffline(String userId) {
+        try {
+            String callId = callService.callOf(userId);
+            if (callId == null) {
+                return;
+            }
+            Map<Object, Object> state = callService.state(callId);
+            String caller = state.get("callerId") == null ? null : String.valueOf(state.get("callerId"));
+            String callee = state.get("calleeId") == null ? null : String.valueOf(state.get("calleeId"));
+            String peer = userId.equals(caller) ? callee : caller;
+            String status = CallService.STATUS_ACTIVE.equals(callService.statusOf(callId))
+                    ? CallSession.STATUS_COMPLETED
+                    : (userId.equals(caller) ? CallSession.STATUS_CANCELED : CallSession.STATUS_MISSED);
+            callService.terminate(callId, status);
+            if (peer != null) {
+                ChatMessage hangup = ChatMessage.builder()
+                        .type(ChatConstants.CALL_HANGUP)
+                        .from(ChatConstants.SYSTEM_USER)
+                        .to(peer)
+                        .group(false)
+                        .content("")
+                        .build();
+                hangup.addHeader(ChatConstants.HEADER_CALL_ID, callId);
+                hangup.addHeader(ChatConstants.HEADER_CALL_REASON, ChatConstants.REASON_PEER_OFFLINE);
+                callSignalRouter.deliver(hangup);
+            }
+            log.info("Call {} ended by offline user {} (status={})", callId, userId, status);
+        } catch (Exception e) {
+            log.warn("End call on offline failed for user {}: {}", userId, e.getMessage());
         }
     }
 

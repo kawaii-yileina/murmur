@@ -60,6 +60,20 @@ public class CallService {
             Long.class);
 
     /**
+     * 接听 CAS（原子）：仅当当前状态不是 ACTIVE 时置为 ACTIVE 并写 answeredAt。
+     * 避免多设备同毫秒重复接听各自覆写 answeredAt/重复通知。返回 1=本次完成状态迁移。
+     */
+    private static final RedisScript<Long> ACCEPT_CAS = RedisScript.of(
+            "local st = redis.call('HGET', KEYS[1], 'status') "
+            + "if not st then return 0 end "
+            + "if st == 'ACTIVE' then return 0 end "
+            + "redis.call('HSET', KEYS[1], 'status', ARGV[1]) "
+            + "redis.call('HSET', KEYS[1], 'answeredAt', ARGV[2]) "
+            + "redis.call('EXPIRE', KEYS[1], ARGV[3]) "
+            + "return 1",
+            Long.class);
+
+    /**
      * 超时终结（原子）：仅当状态非 ACTIVE 才清理（避免与"刚接听"竞态拆掉通话）。
      * KEYS[1]=call hash KEYS[2]=busy:caller KEYS[3]=busy:callee ARGV[1]=callId
      * 返回 1=已终结，0=已是 ACTIVE 未处理。
@@ -130,14 +144,16 @@ public class CallService {
         updateStatus(callId, STATUS_RINGING);
     }
 
-    /** 被叫接听：置 ACTIVE，移出超时队列、加入续期集合（忙线保留并续期至通话结束） */
+    /** 被叫接听：原子 CAS 置 ACTIVE（重复接听只生效一次），移出超时队列、加入续期集合 */
     public void onAccept(String callId) {
-        if (STATUS_ACTIVE.equals(statusOf(callId))) {
-            return; // 重复 ACCEPT：忽略，避免重写接听时间/重复通知
+        if (isBlank(callId)) {
+            return;
         }
-        if (updateStatus(callId, STATUS_ACTIVE)) {
-            redis.opsForHash().put(CALL_KEY + callId, "answeredAt", String.valueOf(System.currentTimeMillis()));
-            redis.expire(CALL_KEY + callId, CALL_TTL_SECONDS, TimeUnit.SECONDS);
+        Long r = redis.execute(ACCEPT_CAS, List.of(CALL_KEY + callId),
+                STATUS_ACTIVE, String.valueOf(System.currentTimeMillis()), String.valueOf(CALL_TTL_SECONDS));
+        if (r != null && r == 1L) {
+            renewBusy(callId, str(redis.opsForHash().get(CALL_KEY + callId, "callerId")),
+                    str(redis.opsForHash().get(CALL_KEY + callId, "calleeId")));
             redis.opsForZSet().remove(PENDING_KEY, callId);
             redis.opsForZSet().add(ACTIVE_KEY, callId, System.currentTimeMillis());
         }
@@ -280,6 +296,15 @@ public class CallService {
         }
         Map<Object, Object> state = redis.opsForHash().entries(CALL_KEY + callId);
         return userId.equals(str(state.get("callerId"))) || userId.equals(str(state.get("calleeId")));
+    }
+
+    /** 用户当前进行中的通话 callId（无则 null）；忙线索引与通话同寿命 */
+    public String callOf(String userId) {
+        if (isBlank(userId)) {
+            return null;
+        }
+        String callId = redis.opsForValue().get(BUSY_KEY + userId);
+        return isBlank(callId) ? null : callId;
     }
 
     /** 领取一次超时处理权（ZSet 原子移除成功者才处理），避免多节点重复推送 */

@@ -100,6 +100,14 @@ im:
     # 音视频通话：振铃超时（秒），超时未接通知双方（通话记录落库见 G2）
     ring-timeout-seconds: 30
     enabled: ${IM_CALL_ENABLED:true}
+    # ICE：STUN 地址（逗号分隔）
+    stun-urls: ${STUN_URLS:stun:stun.l.google.com:19302}
+    # TURN（coturn）：启用后下发带临时凭证的 TURN 地址，用于 NAT/公网环境建连
+    turn:
+      enabled: ${IM_CALL_TURN_ENABLED:false}
+      urls: ${TURN_URLS:}
+      shared-secret: ${TURN_SHARED_SECRET:}
+      ttl-seconds: ${TURN_TTL_SECONDS:3600}
   rate-limit:
     # 用户级发送限流：1 秒窗口内允许的最大消息条数（<=0 关闭）
     messages-per-second: 5

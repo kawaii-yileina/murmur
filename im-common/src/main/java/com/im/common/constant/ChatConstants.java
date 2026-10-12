@@ -72,6 +72,8 @@ public final class ChatConstants {
     public static final String HEADER_CALL_STATUS = "callStatus";
     /** 拒绝/失败原因 */
     public static final String HEADER_CALL_REASON = "reason";
+    /** 通话结束原因：对端离线/断线（服务端在用户无在线设备时自动结束通话并通知对端） */
+    public static final String REASON_PEER_OFFLINE = "peer_offline";
 
     /** 合法的通话信令类型白名单（避免以前缀放行任意自造类型绕过限流等） */
     private static final java.util.Set<String> CALL_TYPES = java.util.Set.of(

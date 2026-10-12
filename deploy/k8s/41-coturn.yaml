@@ -1,0 +1,69 @@
+# coturn：TURN/STUN 中继（NAT/公网环境通话建连）
+# 认证：静态共享密钥 + 临时凭证（use-auth-secret），密钥取自 Secret 的 TURN_SHARED_SECRET，
+#       必须与 im-server 的 TURN_SHARED_SECRET 一致。
+# 注意：Service 默认 ClusterIP 仅集群内可达；公网/外网客户端需改为 LoadBalancer/NodePort，
+#       并在 turnserver 上按需配置 --external-ip / --relay-ip。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coturn
+  namespace: im
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coturn
+  template:
+    metadata:
+      labels:
+        app: coturn
+    spec:
+      containers:
+        - name: coturn
+          image: coturn/coturn:4.6
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              exec turnserver
+              --use-auth-secret
+              --static-auth-secret="$TURN_SHARED_SECRET"
+              --realm=im.local
+              --fingerprint
+              --min-port=49160
+              --max-port=49200
+              --no-cli
+              --no-tls
+              --no-dtls
+              --log-file=stdout
+          env:
+            - name: TURN_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: im-server-secret
+                  key: TURN_SHARED_SECRET
+          ports:
+            - name: turn-udp
+              containerPort: 3478
+              protocol: UDP
+            - name: turn-tcp
+              containerPort: 3478
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coturn
+  namespace: im
+spec:
+  selector:
+    app: coturn
+  type: ClusterIP
+  ports:
+    - name: turn-udp
+      port: 3478
+      protocol: UDP
+      targetPort: 3478
+    - name: turn-tcp
+      port: 3478
+      protocol: TCP
+      targetPort: 3478

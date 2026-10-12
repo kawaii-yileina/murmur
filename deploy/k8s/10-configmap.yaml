@@ -16,4 +16,7 @@ data:
   IM_ADMIN_USER_IDS: ""
   # 音视频通话开关（false 时丢弃通话信令）
   IM_CALL_ENABLED: "true"
+  # TURN（coturn）：客户端访问地址（如 turn:coturn.im.svc.cluster.local:3478 或公网入口），密钥走 Secret
+  IM_CALL_TURN_ENABLED: "false"
+  TURN_URLS: "turn:coturn:3478?transport=udp"
   JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseContainerSupport -XX:+ExitOnOutOfMemoryError"

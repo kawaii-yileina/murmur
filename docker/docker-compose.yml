@@ -66,6 +66,28 @@ services:
       # 从而 broker initialize() 失败退出，故此处不挂载日志/store 卷（容器内目录本身可写）
       - ./rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
 
+  # ---- coturn：TURN/STUN 中继（NAT/公网环境通话建连）----
+  # 认证方式：静态共享密钥 + 临时凭证（use-auth-secret），密钥须与后端 TURN_SHARED_SECRET 一致
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: im-coturn
+    restart: unless-stopped
+    command:
+      - "--use-auth-secret"
+      - "--static-auth-secret=${TURN_SHARED_SECRET:-im-dev-turn-secret}"
+      - "--realm=im.local"
+      - "--fingerprint"
+      - "--min-port=49160"
+      - "--max-port=49200"
+      - "--no-cli"
+      - "--no-tls"
+      - "--no-dtls"
+      - "--log-file=stdout"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+
   # ---- IM 应用（集群模式，两实例）----
   # 前置：先在仓库根执行 `mvn -q -DskipTests package`（生成 im-app/target/*.jar）
   im-server-1:
@@ -98,6 +120,10 @@ services:
       # Hermes(AI) API Key：未配置时 AI 不可用（邮件/AI 均为可选）
       HERMES_API_KEY: ${HERMES_API_KEY:-}
       IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
+      # TURN（coturn）：客户端经网关/宿主访问，需与 coturn 的 static-auth-secret 一致
+      IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-false}
+      TURN_URLS: ${TURN_URLS:-turn:localhost:3478?transport=udp}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-im-dev-turn-secret}
     ports:
       - "8190:8180"
       - "9190:9100"
@@ -132,6 +158,10 @@ services:
       # Hermes(AI) API Key：未配置时 AI 不可用（邮件/AI 均为可选）
       HERMES_API_KEY: ${HERMES_API_KEY:-}
       IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
+      # TURN（coturn）：客户端经网关/宿主访问，需与 coturn 的 static-auth-secret 一致
+      IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-false}
+      TURN_URLS: ${TURN_URLS:-turn:localhost:3478?transport=udp}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-im-dev-turn-secret}
     ports:
       - "8191:8180"
       - "9191:9100"
