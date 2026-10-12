@@ -2,7 +2,7 @@
 # 认证：静态共享密钥 + 临时凭证（use-auth-secret），密钥取自 Secret 的 TURN_SHARED_SECRET，
 #       必须与 im-server 的 TURN_SHARED_SECRET 一致。
 # 注意：Service 默认 ClusterIP 仅集群内可达；公网/外网客户端需改为 LoadBalancer/NodePort，
-#       并在 turnserver 上按需配置 --external-ip / --relay-ip。
+#       将 TURN_EXTERNAL_IP 设为客户端可达的对外 IP，并放通 relay 段端口（UDP 49160-49200）。
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,12 +35,16 @@ spec:
               --no-tls
               --no-dtls
               --log-file=stdout
+              ${TURN_EXTERNAL_IP:+--external-ip=$TURN_EXTERNAL_IP}
           env:
             - name: TURN_SHARED_SECRET
               valueFrom:
                 secretKeyRef:
                   name: im-server-secret
                   key: TURN_SHARED_SECRET
+            # 客户端可达的对外 IP；设置后追加 --external-ip（公网部署必填为 LB/宿主机公网 IP）
+            - name: TURN_EXTERNAL_IP
+              value: ""
           ports:
             - name: turn-udp
               containerPort: 3478

@@ -77,6 +77,10 @@ services:
       - "--static-auth-secret=${TURN_SHARED_SECRET:-im-dev-turn-secret}"
       - "--realm=im.local"
       - "--fingerprint"
+      # 客户端可达的对外 IP（本机开发用 127.0.0.1；公网部署改为宿主机公网 IP，否则 relay 候选不可达）
+      - "--external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}"
+      # 本机开发两端均在环回地址，需放行；公网部署可移除
+      - "--allow-loopback-peers"
       - "--min-port=49160"
       - "--max-port=49200"
       - "--no-cli"
