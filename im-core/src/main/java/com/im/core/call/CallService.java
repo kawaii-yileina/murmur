@@ -74,6 +74,19 @@ public class CallService {
             Long.class);
 
     /**
+     * 振铃 CAS（原子）：仅当状态为 CALLING/RINGING 时置 RINGING，避免把已接通的通话降级回振铃。
+     * 返回 1=本次完成状态迁移。
+     */
+    private static final RedisScript<Long> RING_CAS = RedisScript.of(
+            "local st = redis.call('HGET', KEYS[1], 'status') "
+            + "if not st then return 0 end "
+            + "if st == 'CALLING' or st == 'RINGING' then "
+            + "redis.call('HSET', KEYS[1], 'status', ARGV[1]) "
+            + "redis.call('EXPIRE', KEYS[1], ARGV[2]) "
+            + "return 1 else return 0 end",
+            Long.class);
+
+    /**
      * 超时终结（原子）：仅当状态非 ACTIVE 才清理（避免与"刚接听"竞态拆掉通话）。
      * KEYS[1]=call hash KEYS[2]=busy:caller KEYS[3]=busy:callee ARGV[1]=callId
      * 返回 1=已终结，0=已是 ACTIVE 未处理。
@@ -139,9 +152,17 @@ public class CallService {
         return Result.OK;
     }
 
-    /** 被叫振铃 */
+    /** 被叫振铃：仅在 CALLING/RINGING 时置 RINGING（原子），避免已接通通话被降级 */
     public void onRinging(String callId) {
-        updateStatus(callId, STATUS_RINGING);
+        if (isBlank(callId)) {
+            return;
+        }
+        Long r = redis.execute(RING_CAS, List.of(CALL_KEY + callId),
+                STATUS_RINGING, String.valueOf(CALL_TTL_SECONDS));
+        if (r != null && r == 1L) {
+            renewBusy(callId, str(redis.opsForHash().get(CALL_KEY + callId, "callerId")),
+                    str(redis.opsForHash().get(CALL_KEY + callId, "calleeId")));
+        }
     }
 
     /** 被叫接听：原子 CAS 置 ACTIVE（重复接听只生效一次），移出超时队列、加入续期集合 */
@@ -337,17 +358,6 @@ public class CallService {
     /** 通话当前状态 Hash（无记录返回空 Map） */
     public Map<Object, Object> state(String callId) {
         return redis.opsForHash().entries(CALL_KEY + callId);
-    }
-
-    private boolean updateStatus(String callId, String status) {
-        if (isBlank(callId) || !Boolean.TRUE.equals(redis.hasKey(CALL_KEY + callId))) {
-            return false;
-        }
-        redis.opsForHash().put(CALL_KEY + callId, "status", status);
-        redis.expire(CALL_KEY + callId, CALL_TTL_SECONDS, TimeUnit.SECONDS);
-        renewBusy(callId, str(redis.opsForHash().get(CALL_KEY + callId, "callerId")),
-                str(redis.opsForHash().get(CALL_KEY + callId, "calleeId")));
-        return true;
     }
 
     private void renewBusy(String callId, String caller, String callee) {

@@ -17,6 +17,10 @@ public final class ChatConstants {
     public static final String MSG_TYPE_VOICE = "VOICE";
     /** 通话记录消息（持久化，区别于瞬时 CALL_* 信令） */
     public static final String MSG_TYPE_CALL = "CALL";
+    /** 系统事件消息（服务端下发，禁止客户端上行伪造） */
+    public static final String MSG_TYPE_SYSTEM = "SYSTEM";
+    /** 回执类型（服务端从不以此类型下发，仅为拒绝客户端伪造而防御性保留） */
+    public static final String MSG_TYPE_ACK = "ACK";
     /** 输入中状态（瞬时事件，不落库、不投离线） */
     public static final String MSG_TYPE_TYPING = "TYPING";
 
