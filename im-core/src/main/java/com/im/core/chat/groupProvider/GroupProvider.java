@@ -1,11 +1,14 @@
 package com.im.core.chat.groupProvider;
 
 import com.elaina.chat.core.group.GroupMemberProvider;
+import com.im.core.cache.CacheNames;
 import com.im.core.group.mapper.GroupMemberMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 
 /**
@@ -24,7 +27,8 @@ public class GroupProvider implements GroupMemberProvider {
     private final GroupMemberMapper memberMapper;
 
     @Override
+    @Cacheable(cacheNames = CacheNames.GROUP_MEMBERS, key = "#groupId")
     public List<String> getMembers(String groupId) {
-        return memberMapper.selectMemberIds(Long.parseLong(groupId)).stream().map(String::valueOf).toList();
+        return memberMapper.selectMemberIds(Long.parseLong(groupId)).stream().map(String::valueOf).collect(Collectors.toList());
     }
 }

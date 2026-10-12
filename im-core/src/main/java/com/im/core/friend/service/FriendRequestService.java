@@ -16,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -28,6 +30,7 @@ public class FriendRequestService {
     private final FriendMapper friendMapper;
     private final UserService userService;
     private final MessageGateway messageGateway;
+    private final FriendCacheEvictor friendCacheEvictor;
 
     public FriendRequest sendRequest(Long fromId, Long toId) {
         if (fromId.equals(toId)) {
@@ -97,6 +100,9 @@ public class FriendRequestService {
         }
 
         addFriendBidirectional(request.getFromId(), request.getToId());
+        // 好友关系建立：提交后再失效双方好友 id 缓存，避免事务内失效被并发读回填脏数据
+        evictFriendIdsAfterCommit(request.getFromId());
+        evictFriendIdsAfterCommit(request.getToId());
 
         request.setStatus(1);
         friendRequestMapper.updateById(request);
@@ -144,6 +150,24 @@ public class FriendRequestService {
     public boolean isFriend(Long userId, Long friendId) {
         return friendMapper.selectCount(new LambdaQueryWrapper<Friend>()
                 .eq(Friend::getUserId, userId).eq(Friend::getFriendId, friendId)) > 0;
+    }
+
+    /** 事务提交后失效该用户的好友 id 缓存（无事务则立即失效） */
+    private void evictFriendIdsAfterCommit(Long userId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        friendCacheEvictor.evictFriendIds(userId);
+                    } catch (Exception e) {
+                        log.error("Evict friend cache failed for user {}: {}", userId, e.getMessage());
+                    }
+                }
+            });
+        } else {
+            friendCacheEvictor.evictFriendIds(userId);
+        }
     }
 
     private void addFriendBidirectional(Long a, Long b) {

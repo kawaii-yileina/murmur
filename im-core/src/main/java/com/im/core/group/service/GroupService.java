@@ -6,12 +6,16 @@ import com.elaina.chat.core.gateway.MessageGateway;
 import com.im.common.constant.ChatConstants;
 import com.im.common.enums.SystemEvent;
 import com.im.common.exception.BizException;
+import com.im.core.cache.CacheNames;
 import com.im.core.group.entity.Group;
 import com.im.core.group.entity.GroupMember;
 import com.im.core.group.mapper.GroupMapper;
 import com.im.core.group.mapper.GroupMemberMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,10 +42,12 @@ public class GroupService {
         return group;
     }
 
+    @Cacheable(cacheNames = CacheNames.GROUP_INFO, key = "#groupId")
     public Group findById(Long groupId) {
         return groupMapper.selectById(groupId);
     }
 
+    @CacheEvict(cacheNames = CacheNames.GROUP_MEMBERS, key = "#groupId")
     public void addMember(Long groupId, Long userId, int role) {
         if (isMember(groupId, userId)) {
             throw new BizException("User is already a member of this group");
@@ -57,6 +63,7 @@ public class GroupService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.GROUP_MEMBERS, key = "#groupId")
     public void removeMember(Long groupId, Long userId, Long operatorId) {
         Group group = findById(groupId);
         if (group == null) {
@@ -78,6 +85,7 @@ public class GroupService {
         sendGroupNotification(groupId, SystemEvent.GROUP_KICK, String.valueOf(userId), String.valueOf(operatorId));
     }
 
+    @CacheEvict(cacheNames = CacheNames.GROUP_MEMBERS, key = "#groupId")
     public void quitGroup(Long groupId, Long userId) {
         Group group = findById(groupId);
         if (group == null) {
@@ -93,6 +101,7 @@ public class GroupService {
         sendGroupNotification(groupId, SystemEvent.GROUP_QUIT, String.valueOf(userId));
     }
 
+    @Cacheable(cacheNames = CacheNames.GROUP_MEMBERS, key = "#groupId")
     public List<String> getMemberIds(Long groupId) {
         return groupMemberMapper.selectMemberIds(groupId)
                 .stream()
@@ -141,6 +150,7 @@ public class GroupService {
         return member != null && member.getRole() >= 1;
     }
 
+    @CacheEvict(cacheNames = CacheNames.GROUP_INFO, key = "#groupId")
     public void updateGroupName(Long groupId, String name, Long operatorId) {
         if (!isOwner(groupId, operatorId) && !isAdmin(groupId, operatorId)) {
             throw new BizException("No permission to update group name");
@@ -153,6 +163,10 @@ public class GroupService {
         sendGroupNotification(groupId, SystemEvent.GROUP_RENAME, name, String.valueOf(operatorId));
     }
 
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.GROUP_INFO, key = "#groupId"),
+            @CacheEvict(cacheNames = CacheNames.GROUP_MEMBERS, key = "#groupId")
+    })
     public void transferOwner(Long groupId, Long newOwnerId, Long currentOwnerId) {
         if (!isOwner(groupId, currentOwnerId)) {
             throw new BizException("Only group owner can transfer ownership");

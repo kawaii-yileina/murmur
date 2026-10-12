@@ -2,11 +2,13 @@ package com.im.core.user.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.im.common.exception.BizException;
+import com.im.core.cache.CacheNames;
 import com.im.core.friend.entity.Friend;
 import com.im.core.friend.mapper.FriendMapper;
 import com.im.core.user.entity.User;
 import com.im.core.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -141,9 +143,10 @@ public class UserService {
         return user;
     }
 
+    @Cacheable(cacheNames = CacheNames.FRIEND_IDS, key = "#userId")
     public List<Long> getFriendIds(Long userId) {
         return friendMapper.selectList(
             new LambdaQueryWrapper<Friend>().eq(Friend::getUserId, userId)
-        ).stream().map(Friend::getFriendId).toList();
+        ).stream().map(Friend::getFriendId).collect(Collectors.toList());
     }
 }

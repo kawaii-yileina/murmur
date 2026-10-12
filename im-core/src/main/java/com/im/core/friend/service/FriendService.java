@@ -16,6 +16,7 @@ public class FriendService {
 
     private final FriendMapper friendMapper;
     private final UserService userService;
+    private final FriendCacheEvictor friendCacheEvictor;
 
     public List<User> getFriends(Long userId) {
         List<Friend> friendships = friendMapper.selectList(
@@ -32,6 +33,8 @@ public class FriendService {
                 .eq(Friend::getUserId, userId).eq(Friend::getFriendId, friendId));
         friendMapper.delete(new LambdaQueryWrapper<Friend>()
                 .eq(Friend::getUserId, friendId).eq(Friend::getFriendId, userId));
+        friendCacheEvictor.evictFriendIds(userId);
+        friendCacheEvictor.evictFriendIds(friendId);
     }
 
     public boolean isFriend(Long userId, Long friendId) {

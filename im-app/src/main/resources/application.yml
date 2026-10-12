@@ -93,6 +93,10 @@ hermes:
   session-timeout: 3600
 
 im:
+  cache:
+    # 全局缓存（Spring Cache + Redis）开关与默认 TTL（秒）；关闭时注解降级为 NoOp
+    enabled: ${IM_CACHE_ENABLED:true}
+    ttl-seconds: ${IM_CACHE_TTL_SECONDS:300}
   admin:
     # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
     user-ids: ${IM_ADMIN_USER_IDS:}
