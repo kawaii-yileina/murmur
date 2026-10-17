@@ -9,6 +9,7 @@ import com.im.common.enums.ChatType;
 import com.im.common.enums.MessageType;
 import com.im.common.exception.BizException;
 import com.im.core.conversation.service.ConversationService;
+import com.im.core.file.service.FileOwnershipService;
 import com.im.core.group.entity.GroupMember;
 import com.im.core.group.mapper.GroupMemberMapper;
 import com.im.core.message.dto.MessageSyncResult;
@@ -38,6 +39,7 @@ public class MessageService {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final GroupMemberMapper groupMemberMapper;
+    private final FileOwnershipService fileOwnershipService;
 
     /** 撤回时限（分钟） */
     private static final int RECALL_TIMEOUT_MINUTES = 2;
@@ -79,6 +81,10 @@ public class MessageService {
         msg.setSeq(seq);
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
+        // 附件类消息同事务登记文件归属（图片/视频/语音/文件），供下载时做会话级鉴权
+        fileOwnershipService.bindIfAttachment(
+                msg.getSenderId(), msg.getChatType(), msg.getReceiverId(),
+                msg.getMsgType(), msg.getContent());
         return msg;
     }
 
@@ -166,10 +172,15 @@ public class MessageService {
     }
 
     public List<Message> getHistory(Long userId, Long targetId, int chatType, int page, int size) {
+        boolean group = chatType == ChatType.GROUP.getCode();
+        if (group && !isGroupMember(targetId, userId)) {
+            throw new BizException(403, "无权访问该群会话");
+        }
+
         LambdaQueryWrapper<Message> wrapper = new LambdaQueryWrapper<Message>()
                 .eq(Message::getChatType, chatType);
 
-        if (chatType == 1) {
+        if (group) {
             wrapper.eq(Message::getReceiverId, targetId);
         } else {
             wrapper.and(w -> w

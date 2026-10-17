@@ -54,7 +54,6 @@ public class SecurityConfig {
                     "/api/auth/reset-password",
                     "/api/auth/logout"
                 ).permitAll()
-                .requestMatchers("/api/files/local/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // 容器探针：健康检查匿名放行（不暴露细节）；指标仍仅管理员
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
