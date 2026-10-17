@@ -255,7 +255,7 @@ public class RouteRegistry {
         if (expireAt != null && expireAt > now) {
             return true;
         }
-        boolean alive = Boolean.TRUE.equals(redis.hasKey(nodeKey(nodeId)));
+        boolean alive = redis.hasKey(nodeKey(nodeId));
         if (alive) {
             nodeAliveCache.put(nodeId, now + CACHE_TTL_MILLIS);
         } else {

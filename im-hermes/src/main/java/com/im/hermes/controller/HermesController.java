@@ -26,6 +26,7 @@ public class HermesController {
     private final AiConversationMapper aiConversationMapper;
     private final HermesNativeClient hermesNativeClient;
     private final HermesProperties hermesProperties;
+    private final com.im.hermes.security.SsrfGuard ssrfGuard;
 
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
@@ -281,8 +282,12 @@ public class HermesController {
     }
 
     @PutMapping("/config")
-    public Result<UserAiConfig> saveConfig(@RequestAttribute("userId") String userId,
-                                           @RequestBody UserAiConfig config) {
+    public Result<UserAiConfig> updateConfig(@RequestAttribute("userId") String userId,
+                                             @RequestBody UserAiConfig config) {
+        // 保存前做出站地址校验（SSRF 防护，R2-01）：私有/环回网段一律拒绝
+        if (config.getBaseUrl() != null && !config.getBaseUrl().isBlank()) {
+            ssrfGuard.validateOutbound(config.getBaseUrl());
+        }
         UserAiConfig saved = hermesService.saveUserConfig(userId, config);
         return Result.ok(saved);
     }

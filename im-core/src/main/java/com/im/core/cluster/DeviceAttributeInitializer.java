@@ -11,10 +11,6 @@ import java.util.regex.Pattern;
  * 连接设备属性初始化器：在 WebSocket 握手时把客户端的设备标识写入连接属性。
  *
  * 提取来源（按优先级）：查询参数 > HTTP 头（x-device-id / x-device-type / x-platform）。
- *
- * 重要：框架的默认连接属性初始化器标注了 {@code @ConditionalOnMissingBean(ConnectionAttributeInitializer.class)}
- * （见 chat-nexus F-14），应用一旦新增任意同类型 Bean，框架默认实现即被顶掉，token/userId 将不再提取。
- * 因此本类必须同时复制框架默认行为（提取 userId / token），否则鉴权会失效。
  */
 @Component
 public class DeviceAttributeInitializer implements ConnectionAttributeInitializer {

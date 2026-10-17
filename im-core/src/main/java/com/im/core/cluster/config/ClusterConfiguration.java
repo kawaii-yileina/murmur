@@ -8,9 +8,6 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * 集群能力装配。
- *
- * 本阶段（B1）只提供节点上下文；路由表、跨节点生产者/消费者在后续批次加入。
- * 注意：集群组件位于框架 Dispatcher 链路上，不得依赖 MessageGateway（避免循环依赖）。
  */
 @Slf4j
 @Configuration

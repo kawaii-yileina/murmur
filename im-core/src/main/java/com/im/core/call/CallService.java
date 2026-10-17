@@ -120,7 +120,7 @@ public class CallService {
             return Result.UNKNOWN;
         }
         // 防止复用 callId 覆盖既有通话状态
-        if (Boolean.TRUE.equals(redis.hasKey(CALL_KEY + callId))) {
+        if (redis.hasKey(CALL_KEY + callId)) {
             return Result.UNKNOWN;
         }
         // 原子占用主叫忙线（未在通话中的用户才能发起）
@@ -182,7 +182,7 @@ public class CallService {
 
     /** 续期当前通话状态与忙线（供 OFFER/ANSWER/ICE 等后续信令及定时任务调用） */
     public void touch(String callId) {
-        if (isBlank(callId) || !Boolean.TRUE.equals(redis.hasKey(CALL_KEY + callId))) {
+        if (isBlank(callId) || !redis.hasKey(CALL_KEY + callId)) {
             return;
         }
         redis.expire(CALL_KEY + callId, CALL_TTL_SECONDS, TimeUnit.SECONDS);

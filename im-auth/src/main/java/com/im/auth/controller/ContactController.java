@@ -124,10 +124,15 @@ public class ContactController {
     }
 
     @GetMapping("/groups/{groupId}")
-    public Result<Group> getGroup(@PathVariable Long groupId) {
+    public Result<Group> getGroup(@RequestAttribute("userId") String userId,
+                                  @PathVariable Long groupId) {
+        Long me = Long.parseLong(userId);
         Group group = groupService.findById(groupId);
         if (group == null) {
             return Result.error("Group not found");
+        }
+        if (!groupService.isMember(groupId, me)) {
+            return Result.error(403, "无权查看该群");
         }
         return Result.ok(group);
     }
@@ -148,7 +153,11 @@ public class ContactController {
     }
 
     @GetMapping("/groups/{groupId}/members")
-    public Result<List<Map<String, Object>>> getGroupMembers(@PathVariable Long groupId) {
+    public Result<List<Map<String, Object>>> getGroupMembers(@RequestAttribute("userId") String userId,
+                                                             @PathVariable Long groupId) {
+        if (!groupService.isMember(groupId, Long.parseLong(userId))) {
+            return Result.error(403, "无权查看该群成员");
+        }
         List<GroupMember> members = groupService.getMembers(groupId);
         List<Map<String, Object>> result = members.stream()
                 .map(m -> {
@@ -171,6 +180,10 @@ public class ContactController {
     public Result<Void> addGroupMember(@RequestAttribute("userId") String userId,
                                        @PathVariable Long groupId,
                                        @RequestBody AddMemberRequest request) {
+        Long me = Long.parseLong(userId);
+        if (!groupService.isMember(groupId, me)) {
+            return Result.error(403, "仅群成员可邀请入群");
+        }
         groupService.addMember(groupId, request.getUserId(), 0);
         return Result.ok();
     }
@@ -199,9 +212,14 @@ public class ContactController {
     }
 
     @GetMapping("/groups/{groupId}/check")
-    public Result<Boolean> checkGroupMember(@PathVariable Long groupId,
+    public Result<Boolean> checkGroupMember(@RequestAttribute("userId") String callerId,
+                                            @PathVariable Long groupId,
                                             @RequestParam Long userId) {
-        return Result.ok(groupService.isMember(groupId, userId));
+        Long me = Long.parseLong(callerId);
+        if (!me.equals(userId)) {
+            return Result.error(403, "只能查询自己的成员状态");
+        }
+        return Result.ok(groupService.isMember(groupId, me));
     }
 
     @Data

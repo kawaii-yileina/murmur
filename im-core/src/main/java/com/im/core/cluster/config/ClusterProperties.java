@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 分布式连接路由配置（前缀 im.cluster）。
  *
  * 默认 enabled=false：单机启动不依赖 RocketMQ，行为与未引入集群能力时一致；
- * 集群模式通过 application-cluster.yml 打开。
+ * 集群模式通过 application-prod.yml 打开。
  */
 @Getter
 @Setter

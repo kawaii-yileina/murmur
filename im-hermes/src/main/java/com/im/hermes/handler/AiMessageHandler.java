@@ -45,7 +45,7 @@ public class AiMessageHandler implements MessageHandler {
         String userId = message.getFrom();
         String userContent = message.getContent();
 
-        log.debug("Processing AI message from user {}: {}", userId, userContent);
+        log.debug("Processing AI message from user {}", userId);
 
         try {
             String aiResponse = hermesService.chat(userId, userContent, "ai_" + userId);

@@ -2,6 +2,7 @@ package com.im.core.call;
 
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
+import com.elaina.chat.transport.util.ConnectionUtils;
 import com.im.common.constant.ChatConstants;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.cluster.NodeContext;
@@ -45,7 +46,7 @@ public class CallSignalRouter {
             if (!clusterProperties.isEnabled()) {
                 for (Connection c : connectionRegistry.getConnections(to)) {
                     if (c != null && c.isActive()) {
-                        c.write(msg);
+                        ConnectionUtils.writeSafely(c, msg);
                     }
                 }
                 return;
@@ -59,7 +60,7 @@ public class CallSignalRouter {
                 if (nodeContext.getNodeId().equals(entry.getNodeId())) {
                     Connection c = connectionRegistry.getConnection(to, deviceId);
                     if (c != null && c.isActive()) {
-                        c.write(msg);
+                        ConnectionUtils.writeSafely(c, msg);
                     }
                 } else if (routeRegistry.isNodeAlive(entry.getNodeId())) {
                     ClusterMessageProducer producer = producerProvider.getIfAvailable();

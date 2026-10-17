@@ -45,7 +45,7 @@ public class UserController {
     public Result<Map<String, Object>> getUserById(@PathVariable Long id,
                                                    @RequestAttribute("userId") String userId) {
         Long me = Long.parseLong(userId);
-        User user = userService.findById(id);
+        User user = userService.findActiveById(id);
         if (user == null) {
             return Result.error("User not found");
         }

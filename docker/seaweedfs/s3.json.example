@@ -1,0 +1,14 @@
+﻿{
+  "identities": [
+    {
+      "name": "im",
+      "credentials": [
+        {
+          "accessKey": "imadmin",
+          "secretKey": "change-me-to-match-env"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

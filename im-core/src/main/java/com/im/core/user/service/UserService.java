@@ -28,6 +28,12 @@ public class UserService {
         return userMapper.selectById(id);
     }
 
+    /** 按id查未注销用户：软删除账号对外不可见（V-10），内部展示场景（如群成员昵称回退）仍用 findById */
+    public User findActiveById(Long id) {
+        User user = userMapper.selectById(id);
+        return user != null && !(user.getDeleted() != null && user.getDeleted() == 1) ? user : null;
+    }
+
     public User findByUsername(String username) {
         return userMapper.selectOne(
             new LambdaQueryWrapper<User>().eq(User::getUsername, username)
@@ -115,12 +121,27 @@ public class UserService {
         userMapper.updateById(user);
     }
 
+    /**
+     * 用户搜索：转义 LIKE 通配符防止 %/_ 注入全量枚举（V-04）；
+     * 过滤已注销账号；最小关键词长度 1，上限 30 条。
+     */
     public List<User> searchUsers(String keyword, Long excludeUserId) {
+        String trimmed = keyword == null ? "" : keyword.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        String escaped = trimmed
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
         return userMapper.selectList(
             new LambdaQueryWrapper<User>()
-                .and(w -> w.like(User::getUsername, keyword)
-                    .or().like(User::getNickname, keyword))
+                .and(w -> w
+                    .apply("username LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped)
+                    .or()
+                    .apply("nickname LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped))
                 .ne(User::getId, excludeUserId)
+                .ne(User::getDeleted, 1)
                 .last("LIMIT 30")
         );
     }

@@ -30,7 +30,7 @@ public class MessageDedupService {
         if (msgId == null || msgId.isBlank()) {
             return false;
         }
-        return Boolean.TRUE.equals(redis.hasKey(key(msgId, userId, deviceId)));
+        return redis.hasKey(key(msgId, userId, deviceId));
     }
 
     public void markProcessed(String msgId, String userId, String deviceId) {

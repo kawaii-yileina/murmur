@@ -4,6 +4,7 @@ import com.im.auth.jwt.JwtTokenProvider;
 import com.im.common.enums.VerifyScene;
 import com.im.common.exception.BizException;
 import com.im.common.model.Result;
+import com.im.core.auth.service.LoginAttemptService;
 import com.im.core.auth.service.RefreshTokenService;
 import com.im.core.auth.service.TokenVersionService;
 import com.im.core.auth.service.VerificationCodeService;
@@ -33,6 +34,7 @@ public class AuthController {
     private final RefreshTokenService refreshTokenService;
     private final VerificationCodeService verificationCodeService;
     private final TokenVersionService tokenVersionService;
+    private final LoginAttemptService loginAttemptService;
 
     /**
      * 登出：撤销 refresh token（若提供）并置离线。
@@ -59,10 +61,12 @@ public class AuthController {
 
     @PostMapping("/register")
     public Result<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
+        // 注册强制邮箱验证码（V-06）：必须提供邮箱且验证码校验通过
         String email = normalizeEmail(request.getEmail());
-        if (email != null) {
-            verificationCodeService.verify(VerifyScene.REGISTER, email, request.getCode());
+        if (email == null) {
+            throw new BizException(400, "注册必须使用邮箱验证码");
         }
+        verificationCodeService.verify(VerifyScene.REGISTER, email, request.getCode());
         User user = userService.createUser(
             request.getUsername(),
             passwordEncoder.encode(request.getPassword()),
@@ -74,10 +78,13 @@ public class AuthController {
 
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@Valid @RequestBody LoginRequest request) {
+        loginAttemptService.checkLocked(request.getUsername());
         User user = userService.findByUsername(request.getUsername());
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            loginAttemptService.recordFailure(request.getUsername());
             throw new BizException("用户名或密码错误");
         }
+        loginAttemptService.recordSuccess(request.getUsername());
         ensureActive(user);
         return Result.ok(issueTokens(user.getId(), user.getUsername(), user.getNickname(), user.getAvatar()));
     }
@@ -137,8 +144,10 @@ public class AuthController {
         if (scene == VerifyScene.REGISTER && existing != null) {
             throw new BizException(400, "该邮箱已被注册");
         }
+        // V-07 邮箱枚举防护：登录/重置密码场景对未注册邮箱统一返回成功但不实际发送，
+        // 与已注册邮箱的响应不可区分（频控依旧生效，防止被用于探测+刷接口）
         if ((scene == VerifyScene.LOGIN || scene == VerifyScene.RESET_PASSWORD) && existing == null) {
-            throw new BizException(400, "该邮箱未注册");
+            return Result.ok();
         }
         verificationCodeService.send(scene, email, clientIp(httpRequest));
         return Result.ok();
@@ -262,9 +271,9 @@ public class AuthController {
         @NotBlank(message = "Password is required")
         private String password;
         private String nickname;
-        /** 可选：邮箱注册时必填 */
+        /** 必填：注册必须使用邮箱验证码 */
         private String email;
-        /** 可选：邮箱注册时的验证码 */
+        /** 必填：邮箱验证码 */
         private String code;
     }
 

@@ -5,7 +5,7 @@ metadata:
   name: im-server-config
   namespace: im
 data:
-  SPRING_PROFILES_ACTIVE: "cluster"
+  SPRING_PROFILES_ACTIVE: "prod"
   # 基础设施地址按实际环境修改（示例为同集群内的服务名）
   SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
   SPRING_DATASOURCE_USERNAME: "im_app"
@@ -19,4 +19,9 @@ data:
   # TURN（coturn）：客户端访问地址（如 turn:coturn.im.svc.cluster.local:3478 或公网入口），密钥走 Secret
   IM_CALL_TURN_ENABLED: "false"
   TURN_URLS: "turn:coturn:3478?transport=udp"
+  # 邮件验证码（QQ 邮箱 SMTPS 465）；MAIL_PASSWORD（授权码）走 Secret
+  MAIL_ENABLED: "false"
+  MAIL_HOST: "smtp.qq.com"
+  MAIL_PORT: "465"
+  MAIL_USERNAME: ""
   JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseContainerSupport -XX:+ExitOnOutOfMemoryError"

@@ -19,15 +19,12 @@ import java.io.ByteArrayOutputStream;
  * 语音转文字：按 msgId 取语音消息 → 归属校验 → 读取存储的音频 → 调本地 ASR 服务 → 返回文本。
  * 不落库（仅返回文本）。归属校验：私聊限收发双方，群聊校验成员身份（直接查 GroupMemberMapper，避免引入 MessageGateway 成环）。
  * 音频读取按 maxAudioBytes 限长，避免超大文件整体入内存。
- * 说明：文件定位依赖本地存储的相对 URL（/api/files/local/）；MinIO 预签名 URL 场景暂不支持。
+ * 说明：文件定位依赖后端统一访问 URL 前缀（FileStorage.SERVED_URL_PREFIX），与存储实现（local/s3）无关。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class VoiceTranscriptionService {
-
-    /** 本地存储返回的相对 URL 前缀（LocalStorage.getPresignedUrl） */
-    private static final String LOCAL_URL_PREFIX = "/api/files/local/";
 
     private final MessageService messageService;
     private final GroupMemberMapper groupMemberMapper;
@@ -89,9 +86,9 @@ public class VoiceTranscriptionService {
         if (isBlank(content)) {
             return null;
         }
-        int idx = content.indexOf(LOCAL_URL_PREFIX);
+        int idx = content.indexOf(FileStorage.SERVED_URL_PREFIX);
         if (idx >= 0) {
-            return content.substring(idx + LOCAL_URL_PREFIX.length());
+            return content.substring(idx + FileStorage.SERVED_URL_PREFIX.length());
         }
         return content;
     }

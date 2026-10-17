@@ -1,0 +1,174 @@
+# IM 单机生产编排（面向内存受限的单台 ECS，约 2G）。
+# 与 docker-compose.yml（双实例集群）的区别：单个 im-server 实例、不部署 RocketMQ
+# （im.cluster.enabled=false，见 application-standalone.yml），保留 SeaweedFS(S3) 对象存储，
+# 全部服务设定内存上限以适配小内存主机。
+#
+# 该文件以「部署包根目录」为基准组织路径：运行时同级目录须包含
+#   Dockerfile、im-app.jar、init.sql、nginx/nginx.standalone.conf、seaweedfs/s3.json、certs/、.env
+# 由 deploy/deploy.ps1 自动组装为部署包并上传到服务器 /opt/im；服务器侧就地从该目录构建镜像。
+#
+# 启动：docker compose -f docker-compose.yml up -d --build
+# 停止：docker compose -f docker-compose.yml down（加 -v 连同数据卷删除）
+name: im-standalone
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: im-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # 小内存调优：缩小缓冲池、关闭 performance_schema
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=100
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?请在 .env 设置 DB_PASSWORD}
+      MYSQL_DATABASE: im_db
+      TZ: Asia/Shanghai
+    volumes:
+      - im-mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 420m
+
+  redis:
+    image: redis:7.2
+    container_name: im-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "Ex", "--requirepass", "${REDIS_PASSWORD:?请在 .env 设置 REDIS_PASSWORD}", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - im-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a '${REDIS_PASSWORD}' ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    mem_limit: 128m
+
+  # 对象存储：单机亦用 SeaweedFS(S3)，文件与业务解耦，便于日后扩多实例
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: im-seaweedfs
+    restart: unless-stopped
+    command: mini -dir=/data -s3.config=/etc/seaweedfs/s3.json -bucket=${S3_BUCKET:-im-files}
+    volumes:
+      - im-seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    mem_limit: 256m
+
+  im-server:
+    build:
+      context: .                  # 部署包根目录（与 Dockerfile、im-app.jar 同级）
+      dockerfile: Dockerfile
+      args:
+        JAR_FILE: im-app.jar      # 本地已构建的 jar（deploy.ps1 组装）
+    image: im-server:standalone
+    container_name: im-server
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: standalone
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 设置 JWT_SECRET（>=32 字节）}
+      NODE_ID: ${NODE_ID:-im-server-1}
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
+      # 发送限流（条/秒/用户）
+      IM_RATE_LIMIT_MESSAGES_PER_SECOND: ${IM_RATE_LIMIT_MPS:-10}
+      # Hermes(AI) API Key：未配置时 AI 不可用（可选）
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      # 通话：单机信令走本地直投；公网媒体经 coturn(TURN) 中继
+      IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
+      IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-true}
+      TURN_URLS: ${TURN_URLS:-turn:www.elaina.uno:3478?transport=udp}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      # 邮件验证码（可选）
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # 对象存储：SeaweedFS(S3)，文件经后端鉴权代理下载
+      STORAGE_TYPE: s3
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-http://seaweedfs:8333}
+      STORAGE_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      STORAGE_S3_SECRET_KEY: ${S3_SECRET_KEY}
+      STORAGE_S3_BUCKET: ${S3_BUCKET:-im-files}
+      # JVM 内存上限适配小内存主机（容器上限 700m）
+      JAVA_OPTS: "-Xms256m -Xmx448m -XX:MaxMetaspaceSize=160m -XX:+UseContainerSupport -XX:+ExitOnOutOfMemoryError"
+    # 不映射宿主端口：仅网关经内部网络访问，缩小暴露面
+    expose:
+      - "8180"
+      - "9100"
+    healthcheck:
+      # 就绪判定：actuator 健康端点返回 UP（镜像内含 curl）；供网关依赖与 compose --wait 使用
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8180/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    mem_limit: 700m
+
+  # TURN/STUN 中继：公网/ NAT 环境下音视频通话建连
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: im-coturn
+    restart: unless-stopped
+    command:
+      - "--use-auth-secret"
+      - "--static-auth-secret=${TURN_SHARED_SECRET}"
+      - "--realm=elaina.uno"
+      - "--fingerprint"
+      # 客户端可达的对外 IP：必须为 ECS 公网 IP，否则 relay 候选不可达
+      - "--external-ip=${TURN_EXTERNAL_IP}"
+      - "--min-port=49160"
+      - "--max-port=49200"
+      - "--no-cli"
+      - "--no-tls"
+      - "--no-dtls"
+      - "--log-file=stdout"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    mem_limit: 64m
+
+  # 网关（Nginx）：单入口，/api、/actuator -> REST，其余 -> WebSocket
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: im-gateway
+    restart: unless-stopped
+    depends_on:
+      im-server:
+        condition: service_healthy
+    volumes:
+      - ./nginx/nginx.standalone.conf:/etc/nginx/nginx.conf:ro
+      # TLS 证书目录：域名就绪后放入 fullchain.pem/privkey.pem 并切换到 nginx.standalone.tls.conf
+      - ./certs:/etc/nginx/certs:ro
+    ports:
+      # 域名完成 ICP 备案前，阿里云的 SNI 拦截会重置携带该域名的 TLS 连接（任意端口），
+      # HTTP 80 则返回备案拦截页；备案通过后 80/443 对全部客户端正常。
+      - "80:80"
+      - "443:443"
+    mem_limit: 64m
+
+volumes:
+  im-mysql-data:
+  im-redis-data:
+  im-seaweedfs-data:

@@ -1,0 +1,16 @@
+# 生产/容器 profile：docker compose 启动时激活（SPRING_PROFILES_ACTIVE=prod）
+# 数据中间件主机名与各环境变量由 docker-compose.yml 注入（SPRING_DATASOURCE_URL 等），此处只放集群相关差异
+im:
+  cluster:
+    enabled: true
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV:127.0.0.1:9876}
+  producer:
+    group: ${ROCKETMQ_PRODUCER_GROUP:im-dispatch-producer}
+    send-message-timeout: 3000
+    retry-times-when-send-failed: 2
+
+logging:
+  level:
+    com.im: ${LOG_LEVEL_COM_IM:INFO}

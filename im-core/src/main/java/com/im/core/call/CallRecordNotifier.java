@@ -72,12 +72,12 @@ public class CallRecordNotifier {
         }
         String media = e.media() == null ? "audio" : e.media();
         // 被叫：走普通持久化投递（落 t_message、更新会话、离线兜底）
-        messageGateway.sendToUser(e.calleeId(), callMessage(e.callId(), e.callerId(), e.calleeId(), media, e.status(), e.durationSeconds()));
+        messageGateway.sendToUser(e.calleeId(), callMessage(e.callId(), e.callerId(), e.callerId(), e.calleeId(), media, e.status(), e.durationSeconds()));
         // 主叫：实时副本（不持久化）。注意框架会强制 to=接收者，故 from 取对端，避免主叫端出现"与自己"的会话
-        messageGateway.sendToUser(e.callerId(), callMessage(e.callId(), e.calleeId(), e.callerId(), media, e.status(), e.durationSeconds()), false);
+        messageGateway.sendToUser(e.callerId(), callMessage(e.callId(), e.calleeId(), e.callerId(), e.callerId(), media, e.status(), e.durationSeconds()), false);
     }
 
-    private ChatMessage callMessage(String callId, String from, String to, String media, String status, long duration) {
+    private ChatMessage callMessage(String callId, String from, String callerId, String to, String media, String status, long duration) {
         ChatMessage msg = ChatMessage.builder()
                 .id(callId)
                 .type(ChatConstants.MSG_TYPE_CALL)
@@ -87,6 +87,7 @@ public class CallRecordNotifier {
                 .content("")
                 .build();
         msg.addHeader(ChatConstants.HEADER_CALL_ID, callId);
+        msg.addHeader(ChatConstants.HEADER_CALL_CALLER, callerId);
         msg.addHeader(ChatConstants.HEADER_CALL_MEDIA, media);
         msg.addHeader(ChatConstants.HEADER_CALL_STATUS, status);
         msg.addHeader(ChatConstants.HEADER_DURATION, String.valueOf(duration));

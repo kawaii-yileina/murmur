@@ -1,8 +1,8 @@
-# IM 集群基础设施（本地 / 开发）
+﻿# IM 集群基础设施（本地 / 开发）
 # 启动： docker compose -f im-server/docker/docker-compose.yml up -d
 # 停止： docker compose -f im-server/docker/docker-compose.yml down
-# 端口与 application.yml / application-cluster.yml 默认值对齐：
-#   MySQL 3308 | Redis 6380 | RocketMQ 9876 / 10911
+# 端口与 application.yml / application-prod.yml 默认值对齐：
+#   MySQL 3308 | Redis 6380 | RocketMQ 9876 / 10911 | SeaweedFS S3 8333（Master 9333）
 # 节点服务发现以 Redis 心跳（im:node:{nodeId}）为准，不引入 Nacos。
 name: im-infra
 
@@ -11,16 +11,17 @@ services:
     image: mysql:8.0
     container_name: im-mysql
     ports:
-      - "3308:3306"
+      # 仅本机可连：中间件不暴露到局域网/公网（下一轮安全测试从 8080 入口验证）
+      - "127.0.0.1:3308:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 或环境变量设置 MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: im_db
       TZ: Asia/Shanghai
     volumes:
       - im-mysql-data:/var/lib/mysql
       - ../../sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -29,16 +30,33 @@ services:
     image: redis:7.2
     container_name: im-redis
     ports:
-      - "6380:6379"
-    # 打开 keyspace 通知（在线状态过期事件依赖）
-    command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "Ex"]
+      # 仅本机可连 + requirepass：禁止匿名访问
+      - "127.0.0.1:6380:6379"
+    # 打开 keyspace 通知（在线状态过期事件依赖）+ 访问密码
+    command: ["redis-server", "--appendonly", "yes", "--notify-keyspace-events", "Ex", "--requirepass", "${REDIS_PASSWORD:?请在 .env 或环境变量设置 REDIS_PASSWORD}"]
     volumes:
       - im-redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a '${REDIS_PASSWORD}' ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
+
+  # 对象存储：多实例共享文件（避免 local 存储各容器割裂导致的文件 500）
+  # SeaweedFS（S3 兼容）：weed mini 单进程同时提供 master/volume/filer/S3
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: im-seaweedfs
+    restart: unless-stopped
+    command: mini -dir=/data -s3.config=/etc/seaweedfs/s3.json -bucket=${S3_BUCKET:-im-files}
+    ports:
+      # 仅本机可连：S3/Master 管理面不对外
+      - "127.0.0.1:8333:8333"
+      - "127.0.0.1:9333:9333"
+    volumes:
+      - im-seaweedfs-data:/data
+      # S3 访问凭证（与 .env 的 S3_ACCESS_KEY/S3_SECRET_KEY 一致，改动须两处同步）
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
 
   rmqnamesrv:
     image: apache/rocketmq:5.3.1
@@ -47,7 +65,8 @@ services:
     environment:
       JAVA_OPT_EXT: "-server -Xms256m -Xmx512m"
     ports:
-      - "9876:9876"
+      # 仅本机可连（NameServer 无鉴权，靠端口绑定收敛）
+      - "127.0.0.1:9876:9876"
 
   rmqbroker:
     image: apache/rocketmq:5.3.1
@@ -58,9 +77,10 @@ services:
     environment:
       JAVA_OPT_EXT: "-server -Xms512m -Xmx1g"
     ports:
-      - "10909:10909"
-      - "10911:10911"
-      - "10912:10912"
+      # 仅本机可连（Broker 未开 ACL，靠端口绑定收敛）
+      - "127.0.0.1:10909:10909"
+      - "127.0.0.1:10911:10911"
+      - "127.0.0.1:10912:10912"
     volumes:
       # 注意：apache/rocketmq 镜像以 rocketmq(3000) 运行，命名卷默认 root 所有会导致其无法写日志/store
       # 从而 broker initialize() 失败退出，故此处不挂载日志/store 卷（容器内目录本身可写）
@@ -108,15 +128,18 @@ services:
         condition: service_healthy
       rmqbroker:
         condition: service_started
+      seaweedfs:
+        condition: service_started
     environment:
-      SPRING_PROFILES_ACTIVE: cluster
+      SPRING_PROFILES_ACTIVE: prod
       JWT_SECRET: ${JWT_SECRET:?请在 .env 或环境变量设置 JWT_SECRET（>=32 字节）}
       NODE_ID: im-server-1
       SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-root}
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?请在 .env 或环境变量设置 DB_PASSWORD（与 MYSQL_ROOT_PASSWORD 一致）}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
       ROCKETMQ_NAMESRV: rmqnamesrv:9876
       IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
       # 发送限流（条/秒/用户）：生产按需调整；压测可设为 0 关闭
@@ -126,14 +149,27 @@ services:
       IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
       # TURN（coturn）：客户端经网关/宿主访问，需与 coturn 的 static-auth-secret 一致
       IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-false}
-      TURN_URLS: ${TURN_URLS:-turn:localhost:3478?transport=udp}
+      TURN_URLS: ${TURN_URLS:-turn:${TURN_PUBLIC_HOST:-localhost}:3478?transport=udp}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-im-dev-turn-secret}
       # 语音转文字（本地 ASR HTTP 服务）：默认关闭
       IM_ASR_ENABLED: ${IM_ASR_ENABLED:-false}
       IM_ASR_URL: ${IM_ASR_URL:-}
       IM_ASR_PATH: ${IM_ASR_PATH:-/inference}
       IM_ASR_LANGUAGE: ${IM_ASR_LANGUAGE:-zh}
+      # 邮件验证码（QQ 邮箱 SMTPS 465）：两节点必须一致，否则请求打到未配置节点会报"邮件服务未配置"
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # 对象存储：两节点共享 SeaweedFS(S3)，文件 URL 经后端鉴权代理下载（不再依赖各容器本地磁盘）
+      STORAGE_TYPE: ${STORAGE_TYPE:-s3}
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-http://seaweedfs:8333}
+      STORAGE_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-imadmin}
+      STORAGE_S3_SECRET_KEY: ${S3_SECRET_KEY:-im-secret-key-123456}
+      STORAGE_S3_BUCKET: ${S3_BUCKET:-im-files}
     ports:
+      # 绑定宿主机真实 IP（192.168.0.2）：仅经该地址对外提供入口，不监听回环与其他网卡
       - "8190:8180"
       - "9190:9100"
 
@@ -151,15 +187,18 @@ services:
         condition: service_healthy
       rmqbroker:
         condition: service_started
+      seaweedfs:
+        condition: service_started
     environment:
-      SPRING_PROFILES_ACTIVE: cluster
+      SPRING_PROFILES_ACTIVE: prod
       JWT_SECRET: ${JWT_SECRET:?请在 .env 或环境变量设置 JWT_SECRET（>=32 字节）}
       NODE_ID: im-server-2
       SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true"
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-root}
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?请在 .env 或环境变量设置 DB_PASSWORD（与 MYSQL_ROOT_PASSWORD 一致）}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
       ROCKETMQ_NAMESRV: rmqnamesrv:9876
       IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
       # 发送限流（条/秒/用户）：生产按需调整；压测可设为 0 关闭
@@ -169,13 +208,24 @@ services:
       IM_CALL_ENABLED: ${IM_CALL_ENABLED:-true}
       # TURN（coturn）：客户端经网关/宿主访问，需与 coturn 的 static-auth-secret 一致
       IM_CALL_TURN_ENABLED: ${IM_CALL_TURN_ENABLED:-false}
-      TURN_URLS: ${TURN_URLS:-turn:localhost:3478?transport=udp}
+      TURN_URLS: ${TURN_URLS:-turn:${TURN_PUBLIC_HOST:-localhost}:3478?transport=udp}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-im-dev-turn-secret}
       # 语音转文字（本地 ASR HTTP 服务）：默认关闭
       IM_ASR_ENABLED: ${IM_ASR_ENABLED:-false}
       IM_ASR_URL: ${IM_ASR_URL:-}
       IM_ASR_PATH: ${IM_ASR_PATH:-/inference}
       IM_ASR_LANGUAGE: ${IM_ASR_LANGUAGE:-zh}
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # 对象存储：两节点共享 SeaweedFS(S3)，文件 URL 经后端鉴权代理下载（不再依赖各容器本地磁盘）
+      STORAGE_TYPE: ${STORAGE_TYPE:-s3}
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:-http://seaweedfs:8333}
+      STORAGE_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-imadmin}
+      STORAGE_S3_SECRET_KEY: ${S3_SECRET_KEY:-im-secret-key-123456}
+      STORAGE_S3_BUCKET: ${S3_BUCKET:-im-files}
     ports:
       - "8191:8180"
       - "9191:9100"
@@ -196,3 +246,4 @@ services:
 volumes:
   im-mysql-data:
   im-redis-data:
+  im-seaweedfs-data:

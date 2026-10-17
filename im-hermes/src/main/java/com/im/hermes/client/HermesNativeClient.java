@@ -37,6 +37,12 @@ import java.util.Map;
 public class HermesNativeClient {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final com.im.hermes.security.SsrfGuard ssrfGuard;
+
+    public HermesNativeClient(com.im.hermes.security.SsrfGuard ssrfGuard) {
+        this.ssrfGuard = ssrfGuard;
+    }
+
     // ─── 流式对话 ───
 
     public Flux<String> chatStream(String sessionId, Object message,
@@ -283,6 +289,7 @@ public class HermesNativeClient {
     // ─── 内部工具 ───
 
     private WebClient buildWebClient(String baseUrl, String apiKey) {
+        ssrfGuard.validateOutbound(baseUrl);
         return WebClient.builder()
                 .baseUrl(normalizeBaseUrl(baseUrl))
                 .defaultHeader("Authorization", "Bearer " + (apiKey != null ? apiKey : ""))

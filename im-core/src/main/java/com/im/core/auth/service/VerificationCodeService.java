@@ -35,7 +35,7 @@ public class VerificationCodeService {
     private static final int RESEND_COOLDOWN_SECONDS = 60;
     private static final int MAX_PER_HOUR = 5;
     private static final int MAX_PER_DAY = 15;
-    private static final int MAX_PER_IP_PER_HOUR = 20;
+    private static final int MAX_PER_IP_PER_HOUR = 50;
     private static final int MAX_VERIFY_ATTEMPTS = 5;
 
     private static final SecureRandom RANDOM = new SecureRandom();

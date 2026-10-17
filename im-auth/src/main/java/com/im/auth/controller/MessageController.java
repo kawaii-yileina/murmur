@@ -4,6 +4,7 @@ import com.im.common.model.Result;
 import com.im.core.asr.VoiceTranscriptionService;
 import com.im.core.conversation.entity.Conversation;
 import com.im.core.conversation.service.ConversationService;
+import com.im.core.friend.service.FriendService;
 import com.im.core.message.dto.MessageSyncResult;
 import com.im.core.message.entity.Message;
 import com.im.core.message.service.MessageService;
@@ -23,6 +24,7 @@ public class MessageController {
     private final MessageService messageService;
     private final ConversationService conversationService;
     private final OnlineStatusService onlineStatusService;
+    private final FriendService friendService;
     private final VoiceTranscriptionService voiceTranscriptionService;
 
     @GetMapping("/history")
@@ -106,17 +108,37 @@ public class MessageController {
     }
 
     @GetMapping("/online/{userId}")
-    public Result<Boolean> isUserOnline(@PathVariable String userId) {
+    public Result<Boolean> isUserOnline(@RequestAttribute("userId") String callerId,
+                                        @PathVariable String userId) {
+        if (!canProbeOnline(Long.parseLong(callerId), userId)) {
+            return Result.error(403, "无权查询该用户在线状态");
+        }
         return Result.ok(onlineStatusService.isOnline(userId));
     }
 
     @GetMapping("/online/batch")
-    public Result<Map<String, Boolean>> checkOnlineStatus(@RequestParam List<String> userIds) {
+    public Result<Map<String, Boolean>> checkOnlineStatus(@RequestAttribute("userId") String callerId,
+                                                          @RequestParam List<String> userIds) {
+        Long me = Long.parseLong(callerId);
         Map<String, Boolean> statusMap = new java.util.HashMap<>();
         for (String userId : userIds) {
-            statusMap.put(userId, onlineStatusService.isOnline(userId));
+            if (canProbeOnline(me, userId)) {
+                statusMap.put(userId, onlineStatusService.isOnline(userId));
+            }
         }
         return Result.ok(statusMap);
+    }
+
+    /** 在线状态仅本人与好友可查，防止任意用户被探测行为画像 */
+    private boolean canProbeOnline(Long callerId, String targetUserId) {
+        if (String.valueOf(callerId).equals(targetUserId)) {
+            return true;
+        }
+        try {
+            return friendService.isFriend(callerId, Long.parseLong(targetUserId));
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     @GetMapping("/online/friends")

@@ -17,11 +17,6 @@ import java.util.Set;
 /**
  * 发送频率限流：用户级固定窗口计数（1 秒窗口），超限时阻断发送并回 SYSTEM 提示。
  * 只统计真实聊天消息；SYSTEM / HEARTBEAT / TYPING 等瞬时或系统消息不计入。
- * 位于持久化链路之外（仅依赖 Redis），不涉及 {@code MessageGateway}，无循环依赖风险。
- * 注意：本类刻意不声明 @Component。它实现 MessageInterceptor，若成为 Spring Bean，
- * Spring 注入 MessageDispatcher 的 {@code List<MessageInterceptor>} 时会收集它，
- * 从而顶掉框架 buildInterceptors() 中自带的持久化拦截器，导致消息不落库、不回 ACK。
- * 因此由 ChatConfiguration 手动构造并注册。
  */
 @Slf4j
 @Component

@@ -13,3 +13,11 @@ target/
 uploads/
 logs/
 *.log
+
+# 环境变量（含密钥）：只提交脱敏模板 .env.example
+.env
+.env.*
+!.env.example
+
+# SeaweedFS S3 凭证（含密钥）：只提交 .example
+docker/seaweedfs/s3.json

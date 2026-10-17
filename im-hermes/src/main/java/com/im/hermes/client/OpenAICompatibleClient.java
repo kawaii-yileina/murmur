@@ -18,9 +18,11 @@ import java.util.Map;
 public class OpenAICompatibleClient implements HermesClient {
 
     private final HermesProperties defaultProperties;
+    private final com.im.hermes.security.SsrfGuard ssrfGuard;
 
-    public OpenAICompatibleClient(HermesProperties properties) {
+    public OpenAICompatibleClient(HermesProperties properties, com.im.hermes.security.SsrfGuard ssrfGuard) {
         this.defaultProperties = properties;
+        this.ssrfGuard = ssrfGuard;
     }
 
     @Override
@@ -54,6 +56,7 @@ public class OpenAICompatibleClient implements HermesClient {
     private WebClient buildWebClient(HermesRequest request) {
         String baseUrl = request.getBaseUrl() != null ? request.getBaseUrl() : defaultProperties.getBaseUrl();
         String apiKey = request.getApiKey() != null ? request.getApiKey() : defaultProperties.getApiKey();
+        ssrfGuard.validateOutbound(baseUrl);
         return WebClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader("Authorization", "Bearer " + apiKey)
