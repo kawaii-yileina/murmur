@@ -1,6 +1,7 @@
 package com.im.core.chat.authenticator;
 
 import com.im.common.utils.JwtUtils;
+import com.im.common.constant.ChatConstants;
 import com.im.core.auth.service.TokenVersionService;
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.auth.SessionAuthenticator;
@@ -35,6 +36,8 @@ public class JwtAuthenticator implements SessionAuthenticator {
             if (version == null || version != tokenVersionService.get(userId)) {
                 throw new AuthenticationException("Token 已失效，请重新登录");
             }
+            // 记录认证身份到连接属性：供入站强制 from 归属（防冒充他人）
+            attributes.put(ChatConstants.ATTR_AUTHED_USER_ID, userId);
             log.info("User authenticated via JWT: {}", userId);
             return userId;
         } catch (AuthenticationException e) {

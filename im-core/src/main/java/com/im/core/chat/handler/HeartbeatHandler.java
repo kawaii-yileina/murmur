@@ -4,6 +4,7 @@ import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.handler.HandlerChain;
 import com.elaina.chat.core.handler.MessageHandler;
 import com.elaina.chat.core.message.ChatMessage;
+import com.im.common.constant.ChatConstants;
 import com.im.core.cluster.ConnAttributes;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.route.RouteRegistry;
@@ -31,7 +32,9 @@ public class HeartbeatHandler implements MessageHandler {
     @Override
     public void handle(ChatMessage message, HandlerChain chain) {
         if ("HEARTBEAT".equals(message.getType())) {
-            String userId = message.getFrom();
+            // 心跳不信任客户端 from：优先取本连接 JWT 认证身份，防伪造他人身份刷新在线状态/路由
+            Object authed = chain.getContext().getAttributes().get(ChatConstants.ATTR_AUTHED_USER_ID);
+            String userId = authed != null ? String.valueOf(authed) : message.getFrom();
             if (userId != null && !userId.isEmpty()) {
                 onlineStatusService.refreshHeartbeat(userId);
                 renewRoute(userId, chain);

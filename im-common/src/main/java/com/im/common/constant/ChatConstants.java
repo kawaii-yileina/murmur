@@ -1,11 +1,16 @@
 package com.im.common.constant;
 
+import java.util.Set;
+
 public final class ChatConstants {
     private ChatConstants() {}
 
     public static final String AI_ASSISTANT_ID = "0";
     public static final String AI_ASSISTANT_NAME = "AI助手";
     public static final String SYSTEM_USER = "SYSTEM";
+
+    /** 连接属性键：该连接经 JWT 认证出的用户 id（用于强制消息 from 归属，防冒充） */
+    public static final String ATTR_AUTHED_USER_ID = "authedUserId";
 
     public static final int CHAT_TYPE_PRIVATE = 0;
     public static final int CHAT_TYPE_GROUP = 1;
@@ -70,6 +75,8 @@ public final class ChatConstants {
     public static final String CALL_TIMEOUT = "CALL_TIMEOUT";
 
     public static final String HEADER_CALL_ID = "callId";
+    /** 通话发起人 userId（用于前端区分呼入/呼出与文案） */
+    public static final String HEADER_CALL_CALLER = "caller";
     /** 媒体类型：audio / video */
     public static final String HEADER_CALL_MEDIA = "media";
     /** 通话记录状态：COMPLETED/REJECTED/CANCELED/MISSED/FAILED */
@@ -80,7 +87,7 @@ public final class ChatConstants {
     public static final String REASON_PEER_OFFLINE = "peer_offline";
 
     /** 合法的通话信令类型白名单（避免以前缀放行任意自造类型绕过限流等） */
-    private static final java.util.Set<String> CALL_TYPES = java.util.Set.of(
+    private static final Set<String> CALL_TYPES = Set.of(
             CALL_INVITE, CALL_RINGING, CALL_ACCEPT, CALL_REJECT, CALL_CANCEL,
             CALL_BUSY, CALL_OFFER, CALL_ANSWER, CALL_ICE, CALL_HANGUP, CALL_TIMEOUT);
 

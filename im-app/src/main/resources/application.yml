@@ -7,8 +7,8 @@ spring:
     name: im-server
   servlet:
     multipart:
-      max-file-size: 200MB
-      max-request-size: 200MB
+      max-file-size: 100MB
+      max-request-size: 100MB
   datasource:
     url: jdbc:mysql://localhost:3308/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
     username: root
@@ -18,6 +18,8 @@ spring:
     redis:
       host: localhost
       port: 6380
+      # Redis 访问密码：容器部署经 SPRING_DATA_REDIS_PASSWORD 注入；本机开发用 REDIS_PASSWORD
+      password: ${REDIS_PASSWORD:}
   mail:
     # 邮件服务：通过环境变量注入，未配置时验证码接口返回“邮件服务未配置”
     host: ${MAIL_HOST:}
@@ -30,6 +32,7 @@ spring:
         smtp:
           auth: true
           ssl:
+            # 465 为 SMTPS（QQ 邮箱推荐）；如改用 587 请同时开启 starttls.enable 并关闭 ssl.enable
             enable: true
           connectiontimeout: 5000
           timeout: 5000
@@ -39,8 +42,9 @@ management:
   endpoints:
     web:
       exposure:
-        # 仅暴露只读端点；/actuator/** 仍受鉴权保护（需 JWT）
-        include: health,info,metrics
+        # 仅暴露 health（含容器探针）；metrics/info 等一律不通过 HTTP 暴露（V-08），
+        # 运维指标可通过节点内网端口或日志采集获取
+        include: health
   endpoint:
     health:
       show-details: never
@@ -59,7 +63,8 @@ management:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 不指定 log-impl：默认走 SLF4J(Logback)，SQL 与 SqlSession 生命周期日志由 logging.level 控制
+    # 默认 INFO 不打印 SQL；本地开发 profile(dev) 对 org.apache.ibatis 开 DEBUG 可见
   global-config:
     db-config:
       id-type: assign_id
@@ -72,14 +77,15 @@ chat:
   test-mode: false
 
 storage:
-  type: local
+  # 存储策略：local（单机本地磁盘）| s3（S3 兼容对象存储，如 SeaweedFS，多实例共享）
+  type: ${STORAGE_TYPE:local}
   local:
-    base-path: ./uploads
-  minio:
-    endpoint: http://localhost:9000
-    access-key: minioadmin
-    secret-key: minioadmin
-    bucket: im-files
+    base-path: ${STORAGE_LOCAL_BASE_PATH:./uploads}
+  s3:
+    endpoint: ${STORAGE_S3_ENDPOINT:http://localhost:8333}
+    access-key: ${STORAGE_S3_ACCESS_KEY:}
+    secret-key: ${STORAGE_S3_SECRET_KEY:}
+    bucket: ${STORAGE_S3_BUCKET:im-files}
 
 hermes:
   enabled: true
@@ -120,7 +126,8 @@ im:
       enabled: ${IM_CALL_TURN_ENABLED:false}
       urls: ${TURN_URLS:}
       shared-secret: ${TURN_SHARED_SECRET:}
-      ttl-seconds: ${TURN_TTL_SECONDS:3600}
+      # 短 TTL 临时凭证（V-09）：泄漏窗口最小化，客户端到期前自动重取
+      ttl-seconds: ${TURN_TTL_SECONDS:600}
   rate-limit:
     # 用户级发送限流：1 秒窗口内允许的最大消息条数（<=0 关闭）
     messages-per-second: 5
@@ -169,6 +176,16 @@ im:
     # 跨节点消费最大重消费次数（超过作死信：落离线兜底 + 告警）
     consumer-max-reconsume: 5
 
+  crypto:
+    # 应用层消息体加密（见 docs/消息体加密设计.md）；客户端就绪前默认关闭；启用即对所有连接强制（fail-closed，无明文中间态）
+    enabled: ${IM_CRYPTO_ENABLED:false}
+    # 服务端静态密钥标识
+    key-id: ${IM_CRYPTO_KEY_ID:k1}
+    # 服务端静态私钥（PKCS8 DER，Base64）；生产必须配置，否则启动生成临时密钥
+    private-key: ${IM_CRYPTO_PRIVATE_KEY:}
+    # 服务端静态公钥（SPKI DER，Base64）；用于导出给客户端内置 pin
+    public-key: ${IM_CRYPTO_PUBLIC_KEY:}
+
 jwt:
   # 必须通过环境变量 JWT_SECRET 注入（>=32 字节），不得写入配置文件,开发环境可以写入配置文件
   secret: ${JWT_SECRET:im-secret-key-for-jwt-token-generation-2024}
@@ -181,3 +198,8 @@ logging:
   level:
     com.im: DEBUG
     com.elaina: DEBUG
+    # 应用层加密：压制框架对消息体的 debug/info 打印，避免解密后明文进日志（框架问题记录 F-16）
+    com.elaina.chat.transport.server.ChatServerHandler: INFO
+    com.elaina.chat.transport.codec.ChatMessageDecoder: WARN
+    # 压制握手期打印 WS URI/PRE_ATTRS（含 ?token=）（框架问题记录 F-15）
+    com.elaina.chat.transport.server.HttpParamExtractorHandler: WARN

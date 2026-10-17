@@ -9,6 +9,7 @@ import com.elaina.chat.core.registry.InterceptorRegistry;
 import com.im.common.constant.ChatConstants;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.chat.handler.HeartbeatHandler;
+import com.im.core.chat.handler.IdentityBindingHandler;
 import com.im.core.chat.handler.InboundMessageGuardHandler;
 import com.im.core.chat.handler.MediaMessageHandler;
 import com.im.core.chat.handler.MessageIdAssignHandler;
@@ -23,6 +24,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.util.List;
+
 @Configuration
 @RequiredArgsConstructor
 public class ChatConfiguration implements ChatConfigurer {
@@ -32,6 +35,7 @@ public class ChatConfiguration implements ChatConfigurer {
     private final MediaMessageHandler mediaMessageHandler;
     private final HeartbeatHandler heartbeatHandler;
     private final InboundMessageGuardHandler inboundMessageGuardHandler;
+    private final IdentityBindingHandler identityBindingHandler;
     private final StringRedisTemplate redisTemplate;
     private final MultiConnectionRegistry connectionRegistry;
     private final CallService callService;
@@ -43,6 +47,8 @@ public class ChatConfiguration implements ChatConfigurer {
 
     @Override
     public void addHandlers(HandlerRegistry registry) {
+        // 身份绑定必须最先注册：在路由/校验（基于 from）之前强制 from = 认证身份
+        registry.addHandler(identityBindingHandler);
         registry.addHandler(inboundMessageGuardHandler);
         registry.addHandler(messageIdAssignHandler);
         registry.addHandler(heartbeatHandler);
@@ -60,13 +66,13 @@ public class ChatConfiguration implements ChatConfigurer {
             // 通话功能关闭：显式丢弃所有通话信令，避免其掉入普通消息链路被投递/落库
             registry.addInterceptor(new MessageInterceptor() {
                 @Override
-                public boolean preSend(ChatMessage message, HandlerContext ctx, java.util.List<String> targets) {
+                public boolean preSend(ChatMessage message, HandlerContext ctx, List<String> targets) {
                     return !ChatConstants.isCallSignal(message.getType());
                 }
 
                 @Override
-                public boolean postSend(ChatMessage message, HandlerContext ctx, java.util.List<String> targets,
-                                        java.util.List<String> successList) {
+                public boolean postSend(ChatMessage message, HandlerContext ctx, List<String> targets,
+                                        List<String> successList) {
                     return true;
                 }
             });
