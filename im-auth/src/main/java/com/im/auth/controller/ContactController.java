@@ -4,6 +4,7 @@ import com.im.common.model.Result;
 import com.im.core.friend.service.FriendService;
 import com.im.core.friend.entity.FriendRequest;
 import com.im.core.friend.service.FriendRequestService;
+import com.im.core.group.dto.GroupMemberAvatar;
 import com.im.core.group.entity.Group;
 import com.im.core.group.entity.GroupMember;
 import com.im.core.group.service.GroupService;
@@ -120,7 +121,9 @@ public class ContactController {
 
     @GetMapping("/groups")
     public Result<List<Group>> getGroups(@RequestAttribute("userId") String userId) {
-        return Result.ok(groupService.getUserGroups(Long.parseLong(userId)));
+        List<Group> groups = groupService.getUserGroups(Long.parseLong(userId));
+        groups.forEach(this::fillMemberAvatars);
+        return Result.ok(groups);
     }
 
     @GetMapping("/groups/{groupId}")
@@ -134,6 +137,7 @@ public class ContactController {
         if (!groupService.isMember(groupId, me)) {
             return Result.error(403, "无权查看该群");
         }
+        fillMemberAvatars(group);
         return Result.ok(group);
     }
 
@@ -242,6 +246,20 @@ public class ContactController {
             return Result.error(403, "只能查询自己的成员状态");
         }
         return Result.ok(groupService.isMember(groupId, me));
+    }
+
+    /** 群头像默认使用前 9 个成员（群主、管理员优先） */
+    private void fillMemberAvatars(Group group) {
+        List<GroupMemberAvatar> avatars = groupService.getMembers(group.getId()).stream()
+                .limit(9)
+                .map(member -> {
+                    User user = userService.findById(member.getUserId());
+                    return new GroupMemberAvatar(
+                            user != null && user.getNickname() != null ? user.getNickname() : "",
+                            user != null && user.getAvatar() != null ? user.getAvatar() : "");
+                })
+                .toList();
+        group.setMemberAvatars(avatars);
     }
 
     @Data
