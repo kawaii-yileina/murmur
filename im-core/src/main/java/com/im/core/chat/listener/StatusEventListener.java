@@ -4,6 +4,7 @@ import com.elaina.chat.core.event.ChatEventListener;
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.gateway.MessageGateway;
+import com.elaina.chat.transport.util.ConnectionUtils;
 import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.common.utils.JwtUtils;
 import com.im.common.constant.ChatConstants;
@@ -14,6 +15,7 @@ import com.im.core.cluster.ConnAttributes;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.message.service.OfflineMessageService;
+import com.im.core.message.service.SystemMessageService;
 import com.im.core.online.service.OnlineStatusService;
 import com.im.core.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -21,8 +23,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -38,6 +44,7 @@ public class StatusEventListener implements ChatEventListener {
     private final ClusterProperties clusterProperties;
     private final CallService callService;
     private final CallSignalRouter callSignalRouter;
+    private final SystemMessageService systemMessageService;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -55,8 +62,57 @@ public class StatusEventListener implements ChatEventListener {
         log.info("User authenticated: {}", userId);
         onlineStatusService.userOnline(userId);
         registerRoute(userId, connection);
+        handleDeviceLogin(userId, connection);
         notifyFriends(userId, "online:" + userId);
         sendOfflineMessages(userId, connection);
+    }
+
+    /**
+     * 同类型设备顶号：先通知旧连接，再关闭；不同类型设备不顶号，改为系统会话提醒。
+     * 设备类型只分 mobile / desktop。
+     */
+    private void handleDeviceLogin(String userId, Connection connection) {
+        String newType = ConnAttributes.normalizedDeviceType(connection);
+        List<Connection> others = connectionRegistry.getConnections(userId).stream()
+                .filter(other -> other != null && !other.id().equals(connection.id()))
+                .toList();
+        if (others.isEmpty()) {
+            return;
+        }
+
+        List<Connection> sameType = others.stream()
+                .filter(other -> newType.equals(ConnAttributes.normalizedDeviceType(other)))
+                .toList();
+        boolean hasOtherType = others.stream()
+                .anyMatch(other -> !newType.equals(ConnAttributes.normalizedDeviceType(other)));
+
+        for (Connection old : sameType) {
+            try {
+                ChatMessage kicked = ChatMessage.builder()
+                        .type(ChatConstants.MSG_TYPE_SYSTEM)
+                        .from(ChatConstants.SYSTEM_USER)
+                        .to(userId)
+                        .group(false)
+                        .content(com.im.common.enums.SystemEvent.SESSION_KICKED.format())
+                        .build();
+                ConnectionUtils.writeSafely(old, kicked);
+                CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS)
+                        .execute(() -> ConnectionUtils.closeSafely(old));
+                log.info("Kick same-type device: user={}, type={}, oldConn={}",
+                        userId, newType, old.id());
+            } catch (Exception e) {
+                log.warn("Failed to kick old device for user {}: {}", userId, e.getMessage());
+                ConnectionUtils.closeSafely(old);
+            }
+        }
+
+        if (hasOtherType) {
+            String platform = "mobile".equals(newType) ? "手机" : "电脑";
+            String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+            systemMessageService.sendToUser(Long.parseLong(userId),
+                    "你的账号于 " + time + " 在一台新设备（" + platform
+                            + "）登录。如非本人操作，请及时修改密码。");
+        }
     }
 
     @Override

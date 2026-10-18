@@ -35,6 +35,9 @@ public enum SystemEvent {
     // 会话列表变更（预览/未读/删除）
     CONVERSATION_CHANGED("conversation_changed"),
 
+    // 同类型设备顶号
+    SESSION_KICKED("session_kicked"),
+
     // 发送频率限流
     RATE_LIMITED("rate_limited");
 

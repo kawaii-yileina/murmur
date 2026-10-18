@@ -10,6 +10,7 @@ import com.im.core.auth.service.RefreshTokenService;
 import com.im.core.auth.service.TokenVersionService;
 import com.im.core.auth.service.VerificationCodeService;
 import com.im.core.auth.service.WsTicketService;
+import com.im.core.message.service.SystemMessageService;
 import com.im.core.user.entity.User;
 import com.im.core.user.service.UserService;
 import com.im.core.online.service.OnlineStatusService;
@@ -19,12 +20,14 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -40,6 +43,7 @@ public class AuthController {
     private final LoginAttemptService loginAttemptService;
     private final WsTicketService wsTicketService;
     private final FileTokenCookie fileTokenCookie;
+    private final SystemMessageService systemMessageService;
 
     /**
      * 登出：撤销 refresh token（若提供）并置离线。
@@ -81,6 +85,12 @@ public class AuthController {
             request.getNickname(),
             email
         );
+        try {
+            systemMessageService.sendToUser(user.getId(),
+                    "欢迎来到Murmur");
+        } catch (Exception e) {
+            log.warn("Failed to send welcome system message to {}: {}", user.getId(), e.getMessage());
+        }
         return Result.ok(issueTokens(user.getId(), user.getUsername(), user.getNickname(), null, response));
     }
 

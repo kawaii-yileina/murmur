@@ -29,6 +29,19 @@ public final class ConnAttributes {
         return raw(connection, ATTR_DEVICE_TYPE);
     }
 
+    /** 业务只区分手机和电脑：安卓/iOS 都归一为 mobile，其余归一为 desktop */
+    public static String normalizedDeviceType(Connection connection) {
+        String type = deviceType(connection);
+        if (type == null) {
+            return "desktop";
+        }
+        String normalized = type.toLowerCase();
+        if (normalized.equals("android") || normalized.equals("ios") || normalized.equals("mobile")) {
+            return "mobile";
+        }
+        return "desktop";
+    }
+
     public static String platform(Connection connection) {
         String value = raw(connection, ATTR_PLATFORM);
         return value != null ? value : "unknown";

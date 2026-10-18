@@ -8,6 +8,9 @@ public final class ChatConstants {
     public static final String AI_ASSISTANT_ID = "0";
     public static final String AI_ASSISTANT_NAME = "AI助手";
     public static final String SYSTEM_USER = "SYSTEM";
+    /** 系统通知会话账号（负数，避免与真实用户和 AI=0 冲突） */
+    public static final long SYSTEM_ACCOUNT_ID = -1L;
+    public static final String SYSTEM_ACCOUNT_NAME = "系统通知";
 
     /** 连接属性键：该连接经 JWT 认证出的用户 id（用于强制消息 from 归属，防冒充） */
     public static final String ATTR_AUTHED_USER_ID = "authedUserId";
