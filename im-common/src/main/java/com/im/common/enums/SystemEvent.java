@@ -26,6 +26,8 @@ public enum SystemEvent {
     GROUP_QUIT("group_quit"),
     GROUP_TRANSFER("group_transfer"),
     GROUP_RENAME("group_rename"),
+    GROUP_ADMIN_SET("group_admin_set"),
+    GROUP_ADMIN_UNSET("group_admin_unset"),
 
     // 消息撤回（A2）
     MESSAGE_RECALL("message_recall"),

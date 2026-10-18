@@ -35,6 +35,9 @@ im:
   cache:
     enabled: ${IM_CACHE_ENABLED:true}
     ttl-seconds: ${IM_CACHE_TTL_SECONDS:300}
+  cors:
+    # 跨域 Cookie 必须白名单来源；默认覆盖 Web 与 Capacitor
+    allowed-origins: "${IM_CORS_ALLOWED_ORIGINS:https://elaina.uno,capacitor://localhost,http://localhost,https://localhost,http://localhost:5173}"
   asr:
     enabled: ${IM_ASR_ENABLED:false}
     url: ${IM_ASR_URL:}
@@ -46,6 +49,10 @@ im:
   admin:
     # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox
     user-ids: ${IM_ADMIN_USER_IDS:}
+  file:
+    # 生产 HTTPS：HttpOnly + Secure + SameSite=None（Capacitor/独立前端跨站）
+    cookie-secure: ${IM_FILE_COOKIE_SECURE:true}
+    cookie-same-site: ${IM_FILE_COOKIE_SAME_SITE:None}
   call:
     enabled: ${IM_CALL_ENABLED:true}
     stun-urls: ${STUN_URLS:stun:stun.l.google.com:19302}

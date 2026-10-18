@@ -22,9 +22,9 @@ public class DeviceAttributeInitializer implements ConnectionAttributeInitialize
     public void initialize(Map<String, List<String>> parameters,
                            Map<String, String> headers,
                            Map<String, Object> targetAttributes) {
-        // 复制框架默认行为（userId / token），避免默认初始化器被顶掉导致鉴权失效
+        // 透传一次性 WS ticket 与 userId；不再复制 access token
         putParamFirst(parameters, targetAttributes, "userId");
-        putParamFirst(parameters, targetAttributes, "token");
+        putParamFirst(parameters, targetAttributes, "ticket");
         // 设备标识
         putDeviceId(parameters, headers, targetAttributes);
         put(parameters, headers, targetAttributes, ConnAttributes.ATTR_DEVICE_TYPE, "x-device-type");

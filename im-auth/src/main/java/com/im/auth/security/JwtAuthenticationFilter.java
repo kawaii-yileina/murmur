@@ -3,6 +3,7 @@ package com.im.auth.security;
 import com.im.auth.jwt.JwtTokenProvider;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -24,9 +25,6 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
-
-    @Value("${jwt.token-name}")
-    private String tokenName;
 
     /** 管理员用户名单（逗号分隔）；名单内用户额外获得 ROLE_ADMIN，用于 /actuator/metrics 等运维端点 */
     @Value("${im.admin.user-ids:}")
@@ -69,6 +67,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             return bearerToken.substring(7);
         }
-        return request.getParameter(tokenName);
+        // 文件接口用 HttpOnly Cookie 鉴权，禁止再接受 ?token=，避免 JWT 进入 URL/日志
+        if (request.getRequestURI().startsWith("/api/files/local/")) {
+            Cookie[] cookies = request.getCookies();
+            if (cookies != null) {
+                for (Cookie cookie : cookies) {
+                    if (FileTokenCookie.NAME.equals(cookie.getName())
+                            && StringUtils.hasText(cookie.getValue())) {
+                        return cookie.getValue();
+                    }
+                }
+            }
+        }
+        return null;
     }
 }

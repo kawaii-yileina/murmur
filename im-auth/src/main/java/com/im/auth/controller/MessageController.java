@@ -41,6 +41,18 @@ public class MessageController {
     }
 
     @EncryptedResponse
+    @GetMapping("/around")
+    public Result<List<Message>> getAround(
+            @RequestAttribute("userId") String userId,
+            @RequestParam Long targetId,
+            @RequestParam Integer chatType,
+            @RequestParam long seq,
+            @RequestParam(defaultValue = "30") int limit) {
+        return Result.ok(messageService.getAround(
+            Long.parseLong(userId), targetId, chatType, seq, limit));
+    }
+
+    @EncryptedResponse
     @GetMapping("/conversations")
     public Result<List<Conversation>> getConversations(@RequestAttribute("userId") String userId) {
         return Result.ok(conversationService.getConversations(Long.parseLong(userId)));

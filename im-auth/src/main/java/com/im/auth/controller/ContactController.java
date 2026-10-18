@@ -184,7 +184,29 @@ public class ContactController {
         if (!groupService.isMember(groupId, me)) {
             return Result.error(403, "仅群成员可邀请入群");
         }
+        if (request.getUserId() == null) {
+            return Result.error("userId 不能为空");
+        }
         groupService.addMember(groupId, request.getUserId(), 0);
+        return Result.ok();
+    }
+
+    @PostMapping("/groups/{groupId}/admins")
+    public Result<Void> setGroupAdmin(@RequestAttribute("userId") String userId,
+                                      @PathVariable Long groupId,
+                                      @RequestBody AdminRequest request) {
+        if (request.getUserId() == null) {
+            return Result.error("userId 不能为空");
+        }
+        groupService.setAdmin(groupId, request.getUserId(), Long.parseLong(userId));
+        return Result.ok();
+    }
+
+    @DeleteMapping("/groups/{groupId}/admins/{memberId}")
+    public Result<Void> unsetGroupAdmin(@RequestAttribute("userId") String userId,
+                                        @PathVariable Long groupId,
+                                        @PathVariable Long memberId) {
+        groupService.unsetAdmin(groupId, memberId, Long.parseLong(userId));
         return Result.ok();
     }
 
@@ -239,6 +261,11 @@ public class ContactController {
 
     @Data
     public static class AddMemberRequest {
+        private Long userId;
+    }
+
+    @Data
+    public static class AdminRequest {
         private Long userId;
     }
 

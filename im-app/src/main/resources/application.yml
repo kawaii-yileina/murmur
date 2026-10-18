@@ -85,6 +85,10 @@ im:
     # 全局缓存（Spring Cache + Redis）开关与默认 TTL（秒）
     enabled: true
     ttl-seconds: 300
+  cors:
+    # 跨域来源白名单；* 仅用于同域开发（不发送跨域 Cookie）
+    # Capacitor 的 Android http scheme 来源为 http://localhost，需显式加入白名单
+    allowed-origins: "${IM_CORS_ALLOWED_ORIGINS:http://localhost}"
   asr:
     # 语音转文字（本地 ASR HTTP 服务），默认关闭
     enabled: false
@@ -99,6 +103,13 @@ im:
   rate-limit:
     # 用户级发送限流：1 秒窗口内允许的最大消息条数（<=0 关闭）
     messages-per-second: 5
+  group:
+    # 每个群的管理员上限（群主不计入）
+    max-admins: 3
+  file:
+    # 文件 Cookie 鉴权：开发 HTTP 用 Lax；生产 HTTPS 跨站需 secure=true + None
+    cookie-secure: false
+    cookie-same-site: Lax
   cluster:
     # 分布式连接路由；仅 prod 开启
     enabled: false

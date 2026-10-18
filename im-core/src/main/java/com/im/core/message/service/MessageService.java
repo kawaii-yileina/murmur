@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -177,10 +178,43 @@ public class MessageService {
             throw new BizException(403, "无权访问该群会话");
         }
 
+        LambdaQueryWrapper<Message> wrapper = conversationWrapper(userId, targetId, chatType);
+        wrapper.orderByDesc(Message::getCreatedAt)
+                .last("LIMIT " + size + " OFFSET " + (page - 1) * size);
+        return messageMapper.selectList(wrapper);
+    }
+
+    public List<Message> getAround(Long userId, Long targetId, int chatType, long seq, int limit) {
+        int size = Math.min(Math.max(limit, 1), 50);
+        boolean group = chatType == ChatType.GROUP.getCode();
+        if (group && !isGroupMember(targetId, userId)) {
+            throw new BizException(403, "无权访问该群会话");
+        }
+
+        int beforeSize = size / 2;
+        int afterSize = size - beforeSize - 1;
+
+        LambdaQueryWrapper<Message> before = conversationWrapper(userId, targetId, chatType)
+                .le(Message::getSeq, seq)
+                .orderByDesc(Message::getSeq)
+                .last("LIMIT " + (beforeSize + 1));
+        LambdaQueryWrapper<Message> after = conversationWrapper(userId, targetId, chatType)
+                .gt(Message::getSeq, seq)
+                .orderByAsc(Message::getSeq)
+                .last("LIMIT " + afterSize);
+
+        List<Message> rows = new ArrayList<>();
+        rows.addAll(messageMapper.selectList(before));
+        rows.addAll(messageMapper.selectList(after));
+        rows.sort(Comparator.comparing(Message::getSeq, Comparator.nullsLast(Comparator.naturalOrder())));
+        return rows;
+    }
+
+    /** 私聊限定会话双方，群聊限定群接收方；群成员校验由调用方完成。 */
+    private LambdaQueryWrapper<Message> conversationWrapper(Long userId, Long targetId, int chatType) {
         LambdaQueryWrapper<Message> wrapper = new LambdaQueryWrapper<Message>()
                 .eq(Message::getChatType, chatType);
-
-        if (group) {
+        if (chatType == ChatType.GROUP.getCode()) {
             wrapper.eq(Message::getReceiverId, targetId);
         } else {
             wrapper.and(w -> w
@@ -188,10 +222,7 @@ public class MessageService {
                 .or(inner -> inner.eq(Message::getSenderId, targetId).eq(Message::getReceiverId, userId))
             );
         }
-
-        wrapper.orderByDesc(Message::getCreatedAt)
-                .last("LIMIT " + size + " OFFSET " + (page - 1) * size);
-        return messageMapper.selectList(wrapper);
+        return wrapper;
     }
 
     /**
@@ -212,16 +243,7 @@ public class MessageService {
             throw new BizException(403, "无权访问该群会话");
         }
 
-        LambdaQueryWrapper<Message> wrapper = new LambdaQueryWrapper<Message>()
-                .eq(Message::getChatType, chatType);
-        if (group) {
-            wrapper.eq(Message::getReceiverId, targetId);
-        } else {
-            wrapper.and(w -> w
-                .and(inner -> inner.eq(Message::getSenderId, userId).eq(Message::getReceiverId, targetId))
-                .or(inner -> inner.eq(Message::getSenderId, targetId).eq(Message::getReceiverId, userId))
-            );
-        }
+        LambdaQueryWrapper<Message> wrapper = conversationWrapper(userId, targetId, chatType);
         // 多取一条判断 hasMore，避免额外 count 查询
         wrapper.gt(Message::getSeq, sinceSeq)
                 .orderByAsc(Message::getSeq)

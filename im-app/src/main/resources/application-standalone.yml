@@ -3,6 +3,10 @@
 im:
   cluster:
     enabled: false
+  file:
+    # 单机常见 HTTP 部署：默认不要求 Secure；HTTPS 环境用 IM_FILE_COOKIE_SECURE=true 覆盖
+    cookie-secure: false
+    cookie-same-site: Lax
 
 logging:
   level:
