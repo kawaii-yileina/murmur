@@ -32,6 +32,9 @@ public enum SystemEvent {
     // 消息撤回（A2）
     MESSAGE_RECALL("message_recall"),
 
+    // 会话列表变更（预览/未读/删除）
+    CONVERSATION_CHANGED("conversation_changed"),
+
     // 发送频率限流
     RATE_LIMITED("rate_limited");
 

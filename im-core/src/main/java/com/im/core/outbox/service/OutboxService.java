@@ -91,11 +91,12 @@ public class OutboxService {
 
         for (String recipientId : recipients) {
             Long rid = parseLong(recipientId);
-            if (rid != null) {
+            if (rid != null && !rid.equals(senderId)) {
                 boolean mentioned = mentionAll || mentionedUserIds.contains(recipientId);
                 conversationService.updateConversation(rid, recipientTargetId, chatType, msg.getId(), lastMsg, mentioned);
             }
         }
+        // 发送者自己的会话只更新预览，不增加未读
         conversationService.updateConversation(senderId, receiverId, chatType, msg.getId(), lastMsg);
     }
 

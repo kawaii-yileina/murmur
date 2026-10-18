@@ -16,6 +16,9 @@ public class Conversation {
     private String lastMsgContent;
     private String lastMsgId;
     private LocalDateTime lastMsgTime;
+    /** 绝对时间戳（毫秒），仅用于推送/前端排序，不落库 */
+    @TableField(exist = false)
+    private Long lastMsgTimeMs;
     private Integer unreadCount;
     /** 是否有人 @ 我（进入会话已读后清除） */
     private Integer mentioned;
