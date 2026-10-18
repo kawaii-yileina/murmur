@@ -18,6 +18,8 @@ public final class CryptoConstants {
 
     /** HKDF info 前缀 */
     public static final String INFO_PREFIX = "im-msg-v1";
+    /** REST 响应加密 HKDF/transcript 前缀 */
+    public static final String INFO_PREFIX_REST = "im-rest-v1";
     /** 方向标签 */
     public static final String DIR_C2S = "c2s";
     public static final String DIR_S2C = "s2c";

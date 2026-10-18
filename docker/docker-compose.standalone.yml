@@ -91,6 +91,15 @@ services:
       IM_ADMIN_USER_IDS: ${IM_ADMIN_USER_IDS:-}
       # 发送限流（条/秒/用户）
       IM_RATE_LIMIT_MESSAGES_PER_SECOND: ${IM_RATE_LIMIT_MPS:-10}
+      # 应用层消息加密（默认关闭；启用需客户端成对发布）
+      IM_CRYPTO_ENABLED: ${IM_CRYPTO_ENABLED:-false}
+      IM_CRYPTO_KEY_ID: ${IM_CRYPTO_KEY_ID:-k1}
+      IM_CRYPTO_PRIVATE_KEY: ${IM_CRYPTO_PRIVATE_KEY:-}
+      IM_CRYPTO_PUBLIC_KEY: ${IM_CRYPTO_PUBLIC_KEY:-}
+      # 双 key 轮换期附加密钥（与主密钥并存）
+      IM_CRYPTO_ROTATE_KEY_ID: ${IM_CRYPTO_ROTATE_KEY_ID:-}
+      IM_CRYPTO_ROTATE_PRIVATE_KEY: ${IM_CRYPTO_ROTATE_PRIVATE_KEY:-}
+      IM_CRYPTO_ROTATE_PUBLIC_KEY: ${IM_CRYPTO_ROTATE_PUBLIC_KEY:-}
       # Hermes(AI) API Key：未配置时 AI 不可用（可选）
       HERMES_API_KEY: ${HERMES_API_KEY:-}
       # 通话：单机信令走本地直投；公网媒体经 coturn(TURN) 中继

@@ -5,34 +5,27 @@ server:
 spring:
   application:
     name: im-server
+  profiles:
+    # 本地直接用 IDEA 启动时默认 dev；docker 通过 SPRING_PROFILES_ACTIVE 指定 prod/standalone
+    default: dev
+    group:
+      # prod 与 standalone 共用容器环境配置（application-container.yml）
+      prod: container
+      standalone: container
   servlet:
     multipart:
       max-file-size: 100MB
-      max-request-size: 100MB
+      max-request-size: 110MB
   datasource:
-    url: jdbc:mysql://localhost:3308/im_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
-    username: root
-    password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
-  data:
-    redis:
-      host: localhost
-      port: 6380
-      # Redis 访问密码：容器部署经 SPRING_DATA_REDIS_PASSWORD 注入；本机开发用 REDIS_PASSWORD
-      password: ${REDIS_PASSWORD:}
   mail:
-    # 邮件服务：通过环境变量注入，未配置时验证码接口返回“邮件服务未配置”
-    host: ${MAIL_HOST:}
-    port: ${MAIL_PORT:465}
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
     default-encoding: UTF-8
     properties:
       mail:
         smtp:
           auth: true
+          # 465 为 SMTPS；如改用 587 请同时开启 starttls.enable 并关闭 ssl.enable
           ssl:
-            # 465 为 SMTPS（QQ 邮箱推荐）；如改用 587 请同时开启 starttls.enable 并关闭 ssl.enable
             enable: true
           connectiontimeout: 5000
           timeout: 5000
@@ -42,29 +35,24 @@ management:
   endpoints:
     web:
       exposure:
-        # 仅暴露 health（含容器探针）；metrics/info 等一律不通过 HTTP 暴露（V-08），
-        # 运维指标可通过节点内网端口或日志采集获取
+        # 仅暴露 health（含容器探针）；metrics/info 等不通过 HTTP 暴露
         include: health
   endpoint:
     health:
       show-details: never
       probes:
-        # 暴露 /actuator/health/liveness 与 /actuator/health/readiness（容器探针；排空时 readiness 转 REFUSING_TRAFFIC）
         enabled: true
   metrics:
     tags:
-      # 统一为全部指标（含 JVM/HTTP）附加节点标签，便于多节点区分
       node: ${im.cluster.node-id:connector-local-1}
   health:
     mail:
-      # 邮件为可选功能（未配置 spring.mail.* 时不可用），不参与整体健康判定
+      # 邮件为可选功能，不参与整体健康判定
       enabled: false
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    # 不指定 log-impl：默认走 SLF4J(Logback)，SQL 与 SqlSession 生命周期日志由 logging.level 控制
-    # 默认 INFO 不打印 SQL；本地开发 profile(dev) 对 org.apache.ibatis 开 DEBUG 可见
   global-config:
     db-config:
       id-type: assign_id
@@ -73,26 +61,20 @@ chat:
   port: 9100
   auto-authenticate: true
   idle-timeout-seconds: 300
-  context: /
+  context: /ws/api/
   test-mode: false
 
 storage:
-  # 存储策略：local（单机本地磁盘）| s3（S3 兼容对象存储，如 SeaweedFS，多实例共享）
-  type: ${STORAGE_TYPE:local}
+  # 默认本地磁盘；dev/容器 profile 按需覆盖
+  type: local
   local:
-    base-path: ${STORAGE_LOCAL_BASE_PATH:./uploads}
-  s3:
-    endpoint: ${STORAGE_S3_ENDPOINT:http://localhost:8333}
-    access-key: ${STORAGE_S3_ACCESS_KEY:}
-    secret-key: ${STORAGE_S3_SECRET_KEY:}
-    bucket: ${STORAGE_S3_BUCKET:im-files}
+    base-path: ./uploads
 
 hermes:
   enabled: true
   native-api: true
   api-type: openai
   base-url: http://localhost:8642/v1
-  api-key: ${HERMES_API_KEY:}
   model: hermes-agent
   max-tokens: 4096
   temperature: 0.7
@@ -100,106 +82,44 @@ hermes:
 
 im:
   cache:
-    # 全局缓存（Spring Cache + Redis）开关与默认 TTL（秒）；关闭时注解降级为 NoOp
-    enabled: ${IM_CACHE_ENABLED:true}
-    ttl-seconds: ${IM_CACHE_TTL_SECONDS:300}
+    # 全局缓存（Spring Cache + Redis）开关与默认 TTL（秒）
+    enabled: true
+    ttl-seconds: 300
   asr:
-    # 语音转文字（本地 ASR HTTP 服务，默认关闭；模型由 ASR 服务侧运行期挂载）
-    enabled: ${IM_ASR_ENABLED:false}
-    url: ${IM_ASR_URL:}
-    path: ${IM_ASR_PATH:/inference}
-    model: ${IM_ASR_MODEL:}
-    language: ${IM_ASR_LANGUAGE:zh}
-    timeout-seconds: ${IM_ASR_TIMEOUT_SECONDS:60}
-    max-audio-bytes: ${IM_ASR_MAX_AUDIO_BYTES:15728640}
-  admin:
-    # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
-    user-ids: ${IM_ADMIN_USER_IDS:}
+    # 语音转文字（本地 ASR HTTP 服务），默认关闭
+    enabled: false
+    path: /inference
+    language: zh
+    timeout-seconds: 60
+    max-audio-bytes: 15728640
   call:
-    # 音视频通话：振铃超时（秒），超时未接通知双方（通话记录落库见 G2）
     ring-timeout-seconds: 30
-    enabled: ${IM_CALL_ENABLED:true}
-    # ICE：STUN 地址（逗号分隔）
-    stun-urls: ${STUN_URLS:stun:stun.l.google.com:19302}
-    # TURN（coturn）：启用后下发带临时凭证的 TURN 地址，用于 NAT/公网环境建连
-    turn:
-      enabled: ${IM_CALL_TURN_ENABLED:false}
-      urls: ${TURN_URLS:}
-      shared-secret: ${TURN_SHARED_SECRET:}
-      # 短 TTL 临时凭证（V-09）：泄漏窗口最小化，客户端到期前自动重取
-      ttl-seconds: ${TURN_TTL_SECONDS:600}
+    enabled: true
+    stun-urls: stun:stun.l.google.com:19302
   rate-limit:
     # 用户级发送限流：1 秒窗口内允许的最大消息条数（<=0 关闭）
     messages-per-second: 5
-  mail:
-    # 邮件验证码开关；需同时配置 spring.mail.* 才能发送
-    enabled: ${MAIL_ENABLED:false}
   cluster:
-    # 分布式连接路由总开关；关闭时全部跨节点逻辑不生效（单机行为不变）
-    enabled: ${CLUSTER_ENABLED:false}
-    # 节点标识：多实例必须唯一
-    node-id: ${NODE_ID:connector-local-1}
-    # 连接路由表 TTL（秒）
-    route-ttl-seconds: 90
-    # 路由 TTL 续期节流间隔（秒）
-    heartbeat-renew-seconds: 30
-    # 默认设备类型（当前客户端为手机端）
-    default-device-type: mobile
-    # 节点存活标记 TTL（秒）
-    node-ttl-seconds: 30
-    # 节点心跳间隔（毫秒）
-    node-heartbeat-millis: 10000
-    # 优雅停机宽限期（毫秒）：先摘除节点存活标记，等待在途投递结束后再清理路由
-    # 需覆盖其他节点对存活标记/路由的短缓存（RouteRegistry 2s），故默认 5000ms；上限在代码中钳制为 10000ms
-    node-shutdown-grace-millis: 5000
-    # 指标采样间隔（毫秒）
-    metrics-interval-millis: 15000
-    # Outbox 死信处置接口（运维用，默认关闭；开启后仅 im.admin.user-ids 名单用户可访问）
-    outbox-admin:
-      enabled: ${OUTBOX_ADMIN_ENABLED:false}
-    # Outbox 每批领取数量
-    outbox-batch: 200
-    # 同一会话 Outbox 在途（未 DONE）条数上限（窗口内近似有序，保证吞吐）
-    outbox-conversation-window: 100
-    # Outbox 任务租约（秒）
-    outbox-lease-seconds: 30
-    # Outbox 轮询间隔（毫秒）
-    outbox-poll-millis: 500
-    # Outbox 最大重试次数（超过置 DEAD）
-    outbox-max-retry: 8
-    # Outbox 退避基数（毫秒）
-    outbox-backoff-base-millis: 1000
-    # Outbox 退避上限（毫秒）
-    outbox-backoff-max-millis: 60000
-    # 待处理积压告警阈值
-    outbox-backlog-alert-threshold: 1000
-    # 跨节点消费最大重消费次数（超过作死信：落离线兜底 + 告警）
-    consumer-max-reconsume: 5
-
+    # 分布式连接路由；仅 prod 开启
+    enabled: false
   crypto:
-    # 应用层消息体加密（见 docs/消息体加密设计.md）；客户端就绪前默认关闭；启用即对所有连接强制（fail-closed，无明文中间态）
-    enabled: ${IM_CRYPTO_ENABLED:false}
-    # 服务端静态密钥标识
-    key-id: ${IM_CRYPTO_KEY_ID:k1}
-    # 服务端静态私钥（PKCS8 DER，Base64）；生产必须配置，否则启动生成临时密钥
-    private-key: ${IM_CRYPTO_PRIVATE_KEY:}
-    # 服务端静态公钥（SPKI DER，Base64）；用于导出给客户端内置 pin
-    public-key: ${IM_CRYPTO_PUBLIC_KEY:}
+    # 应用层消息体加密；默认关闭，启用即对所有连接强制（fail-closed）
+    enabled: false
+    key-id: k1
 
 jwt:
-  # 必须通过环境变量 JWT_SECRET 注入（>=32 字节），不得写入配置文件,开发环境可以写入配置文件
-  secret: ${JWT_SECRET:im-secret-key-for-jwt-token-generation-2024}
-  expiration: 7200000            # access token 有效期：2 小时（毫秒）
-  refresh-expiration: 2592000000 # refresh token 有效期：30 天
-  refresh-grace: 60000           # 轮换后旧 refresh token 的宽限期：60s（容忍并发刷新/响应丢失）
+  expiration: 7200000
+  refresh-expiration: 2592000000
+  refresh-grace: 60000
   token-name: token
 
 logging:
   level:
-    com.im: DEBUG
-    com.elaina: DEBUG
-    # 应用层加密：压制框架对消息体的 debug/info 打印，避免解密后明文进日志（框架问题记录 F-16）
+    root: INFO
+    com.im: INFO
+    com.elaina: INFO
+    # 应用层加密：压制框架对消息体的 debug/info 打印，避免解密后明文进日志（F-16）
     com.elaina.chat.transport.server.ChatServerHandler: INFO
     com.elaina.chat.transport.codec.ChatMessageDecoder: WARN
-    # 压制握手期打印 WS URI/PRE_ATTRS（含 ?token=）（框架问题记录 F-15）
+    # 压制握手期打印 WS URI/PRE_ATTRS（含 ?token=）（F-15）
     com.elaina.chat.transport.server.HttpParamExtractorHandler: WARN

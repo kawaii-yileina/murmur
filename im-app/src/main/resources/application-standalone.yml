@@ -1,15 +1,8 @@
-# 单机生产 profile：单台 ECS 部署（不启用集群与 RocketMQ）。
-# 激活方式：SPRING_PROFILES_ACTIVE=standalone（docker-compose.standalone.yml 已设置）。
-# 与 dev 的差异：中间件地址、存储策略与全部密钥由 docker-compose 注入（SPRING_DATASOURCE_URL、
-# SPRING_DATA_REDIS_*、STORAGE_*、JWT_SECRET 等），此处只放单机与日志相关差异。
+# 单机生产：docker-compose.standalone.yml 激活（SPRING_PROFILES_ACTIVE=standalone，自动包含 container）。
+# 不启用分布式连接路由与 RocketMQ，中间件/密钥仍由 compose 环境变量注入。
 im:
   cluster:
-    # 单机不启用分布式连接路由：无需 RocketMQ，也无需 Redis 节点心跳
     enabled: false
-
-storage:
-  # 单机仍使用 SeaweedFS(S3) 对象存储，便于日后横向扩展
-  type: ${STORAGE_TYPE:s3}
 
 logging:
   level:

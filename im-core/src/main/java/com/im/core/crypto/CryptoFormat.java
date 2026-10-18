@@ -49,6 +49,27 @@ public final class CryptoFormat {
         return Hkdf.expand(prk, info.getBytes(StandardCharsets.UTF_8), CryptoConstants.KEY_LEN);
     }
 
+    /** REST transcript：绑定版本/keyId/请求上下文/客户端 nonce/服务端 nonce/双方临时公钥 */
+    public static byte[] restTranscript(int version, String keyId, String ctxHex, byte[] cNonce,
+                                        byte[] sNonce, byte[] clientPub, byte[] serverPub) {
+        String s = CryptoConstants.INFO_PREFIX_REST
+                + "|v=" + version
+                + "|keyId=" + keyId
+                + "|ctx=" + ctxHex
+                + "|cnonce=" + b64(cNonce)
+                + "|snonce=" + b64(sNonce)
+                + "|cpub=" + b64(clientPub)
+                + "|spub=" + b64(serverPub);
+        return sha256(s.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** REST 响应密钥：HKDF-Expand(PRK, im-rest-v1|keyId|s2c|hex(transcript), 32) */
+    public static byte[] deriveRestKey(byte[] prk, String keyId, byte[] transcript) {
+        String info = CryptoConstants.INFO_PREFIX_REST + "|" + keyId + "|" + CryptoConstants.DIR_S2C
+                + "|" + hex(transcript);
+        return Hkdf.expand(prk, info.getBytes(StandardCharsets.UTF_8), CryptoConstants.KEY_LEN);
+    }
+
     /** nonce = 4 字节方向前缀 || 8 字节大端计数器 */
     public static byte[] nonce(byte[] prefix, long counter) {
         byte[] nonce = new byte[CryptoConstants.NONCE_LEN];

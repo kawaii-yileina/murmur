@@ -26,7 +26,6 @@ public class CryptoDuplexHandler extends ChannelDuplexHandler {
     private final CryptoProperties properties;
     private final HandshakeService handshakeService;
     private final CryptoPayloadCodec payloadCodec;
-    private final String keyId;
 
     /** 握手完成前的出向缓冲（本 handler 每连接一个实例，仅在 EventLoop 线程访问） */
     private final Deque<ChatMessage> pending = new ArrayDeque<>();
@@ -36,7 +35,6 @@ public class CryptoDuplexHandler extends ChannelDuplexHandler {
         this.properties = properties;
         this.handshakeService = handshakeService;
         this.payloadCodec = payloadCodec;
-        this.keyId = properties.getKeyId();
     }
 
     @Override
@@ -146,8 +144,9 @@ public class CryptoDuplexHandler extends ChannelDuplexHandler {
         String ckid = str(m.getHeader(CryptoConstants.HEADER_CRYPTO_KEY_ID));
         long seq = parseLong(m.getHeader(CryptoConstants.HEADER_CRYPTO_SEQ));
         byte[] iv = CryptoFormat.unb64(str(m.getHeader(CryptoConstants.HEADER_CRYPTO_IV)));
-        if (v != CryptoConstants.VERSION || !keyId.equals(ckid) || iv.length != CryptoConstants.NONCE_LEN
-                || seq != conn.peekRecvSeq()) {
+        String connectionKeyId = conn.getKeyId();
+        if (v != CryptoConstants.VERSION || connectionKeyId == null || !connectionKeyId.equals(ckid)
+                || iv.length != CryptoConstants.NONCE_LEN || seq != conn.peekRecvSeq()) {
             closeQuietly(ctx);
             return;
         }
@@ -212,7 +211,8 @@ public class CryptoDuplexHandler extends ChannelDuplexHandler {
     private ChatMessage encrypt(CryptoConnection conn, ChatMessage m) {
         long seq = conn.peekSendSeq();
         byte[] iv = CryptoFormat.nonce(conn.getSNonce(), seq);
-        byte[] aad = CryptoFormat.aad(CryptoConstants.VERSION, keyId, CryptoConstants.DIR_S2C, seq,
+        String connectionKeyId = conn.getKeyId();
+        byte[] aad = CryptoFormat.aad(CryptoConstants.VERSION, connectionKeyId, CryptoConstants.DIR_S2C, seq,
                 m.getType(), m.getId(), m.getFrom(), m.getTo(), m.isGroup(), m.getTimestamp());
         byte[] plaintext = payloadCodec.encode(m.getContent(), m.getHeaders());
         byte[] ciphertext = AesGcm.encrypt(conn.getS2cKey(), iv, aad, plaintext);
@@ -221,7 +221,7 @@ public class CryptoDuplexHandler extends ChannelDuplexHandler {
         Map<String, Object> clear = new HashMap<>();
         clear.put(CryptoConstants.HEADER_ENCRYPTED, "1");
         clear.put(CryptoConstants.HEADER_CRYPTO_V, String.valueOf(CryptoConstants.VERSION));
-        clear.put(CryptoConstants.HEADER_CRYPTO_KEY_ID, keyId);
+        clear.put(CryptoConstants.HEADER_CRYPTO_KEY_ID, connectionKeyId);
         clear.put(CryptoConstants.HEADER_CRYPTO_IV, CryptoFormat.b64(iv));
         clear.put(CryptoConstants.HEADER_CRYPTO_SEQ, String.valueOf(seq));
         return m.copy("content", "headers").withContent(CryptoFormat.b64(ciphertext)).withHeaders(clear);

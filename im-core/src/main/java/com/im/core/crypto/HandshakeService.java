@@ -52,6 +52,7 @@ public class HandshakeService {
             if (!keyManager.hasKey(hello.keyId())) {
                 throw new IllegalArgumentException("unknown keyId");
             }
+            log.debug("crypto handshake start: keyId={}", hello.keyId());
             byte[] cNonce = CryptoFormat.unb64(hello.cNonce());
             if (cNonce.length != CryptoConstants.NONCE_PREFIX_LEN) {
                 throw new IllegalArgumentException("invalid client nonce");

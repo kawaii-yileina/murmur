@@ -1,5 +1,6 @@
 package com.im.auth.controller;
 
+import com.im.auth.crypto.EncryptedResponse;
 import com.im.common.model.Result;
 import com.im.core.asr.VoiceTranscriptionService;
 import com.im.core.conversation.entity.Conversation;
@@ -27,6 +28,7 @@ public class MessageController {
     private final FriendService friendService;
     private final VoiceTranscriptionService voiceTranscriptionService;
 
+    @EncryptedResponse
     @GetMapping("/history")
     public Result<List<Message>> getHistory(
             @RequestAttribute("userId") String userId,
@@ -38,6 +40,7 @@ public class MessageController {
             Long.parseLong(userId), targetId, chatType, page, size));
     }
 
+    @EncryptedResponse
     @GetMapping("/conversations")
     public Result<List<Conversation>> getConversations(@RequestAttribute("userId") String userId) {
         return Result.ok(conversationService.getConversations(Long.parseLong(userId)));
@@ -47,6 +50,7 @@ public class MessageController {
      * 会话增量同步：返回 seq &gt; sinceSeq 的消息，用于断线重连/多端补拉。
      * 客户端以返回的 lastSeq 作为下次 sinceSeq。
      */
+    @EncryptedResponse
     @GetMapping("/sync")
     public Result<MessageSyncResult> sync(
             @RequestAttribute("userId") String userId,
@@ -61,17 +65,18 @@ public class MessageController {
     /**
      * 撤回消息（仅本人、2 分钟内），撤回后向会话内其他成员推送 SYSTEM 事件。
      */
+    @EncryptedResponse
     @PostMapping("/recall")
     public Result<Message> recallMessage(@RequestAttribute("userId") String userId,
                                       @RequestBody RecallRequest request) {
         if (request.getMsgId() == null || request.getMsgId().isBlank()) {
             return Result.error("msgId 不能为空");
         }
-        ;
         return Result.ok(messageService.recallMessage(Long.parseLong(userId), request.getMsgId()));
     }
 
     /** 语音转文字（本地 ASR）：按 msgId 转写语音消息，仅返回文本不落库。 */
+    @EncryptedResponse
     @PostMapping("/voice/transcribe")
     public Result<Map<String, String>> transcribeVoice(@RequestAttribute("userId") String userId,
                                                        @RequestBody TranscribeRequest request) {

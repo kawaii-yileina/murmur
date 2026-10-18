@@ -1,0 +1,73 @@
+# 容器部署共用配置：SPRING_PROFILES_ACTIVE=prod/standalone 时由 profile group 自动激活。
+# 中间件地址与密钥全部由 docker-compose 环境变量注入。
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
+      password: ${SPRING_DATA_REDIS_PASSWORD}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+
+storage:
+  type: ${STORAGE_TYPE:s3}
+  s3:
+    endpoint: ${STORAGE_S3_ENDPOINT:}
+    access-key: ${STORAGE_S3_ACCESS_KEY:}
+    secret-key: ${STORAGE_S3_SECRET_KEY:}
+    bucket: ${STORAGE_S3_BUCKET:im-files}
+
+hermes:
+  api-key: ${HERMES_API_KEY:}
+
+jwt:
+  # 生产必须注入（>=32 字节），不提供默认值
+  secret: ${JWT_SECRET}
+
+im:
+  cache:
+    enabled: ${IM_CACHE_ENABLED:true}
+    ttl-seconds: ${IM_CACHE_TTL_SECONDS:300}
+  asr:
+    enabled: ${IM_ASR_ENABLED:false}
+    url: ${IM_ASR_URL:}
+    path: ${IM_ASR_PATH:/inference}
+    model: ${IM_ASR_MODEL:}
+    language: ${IM_ASR_LANGUAGE:zh}
+    timeout-seconds: ${IM_ASR_TIMEOUT_SECONDS:60}
+    max-audio-bytes: ${IM_ASR_MAX_AUDIO_BYTES:15728640}
+  admin:
+    # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox
+    user-ids: ${IM_ADMIN_USER_IDS:}
+  call:
+    enabled: ${IM_CALL_ENABLED:true}
+    stun-urls: ${STUN_URLS:stun:stun.l.google.com:19302}
+    turn:
+      enabled: ${IM_CALL_TURN_ENABLED:false}
+      urls: ${TURN_URLS:}
+      shared-secret: ${TURN_SHARED_SECRET:}
+      ttl-seconds: ${TURN_TTL_SECONDS:600}
+  rate-limit:
+    messages-per-second: ${IM_RATE_LIMIT_MESSAGES_PER_SECOND:5}
+  mail:
+    enabled: ${MAIL_ENABLED:false}
+  cluster:
+    node-id: ${NODE_ID:connector-local-1}
+  crypto:
+    enabled: ${IM_CRYPTO_ENABLED:false}
+    key-id: ${IM_CRYPTO_KEY_ID:k1}
+    private-key: ${IM_CRYPTO_PRIVATE_KEY:}
+    public-key: ${IM_CRYPTO_PUBLIC_KEY:}
+    # 轮换期附加密钥：与主密钥并存；三个 ROTATE_* 都配置才生效。
+    # 步骤：全节点加新钥 → 客户端切新 keyId → 观察后全节点删旧钥。
+    keys:
+      - key-id: ${IM_CRYPTO_ROTATE_KEY_ID:}
+        private-key: ${IM_CRYPTO_ROTATE_PRIVATE_KEY:}
+        public-key: ${IM_CRYPTO_ROTATE_PUBLIC_KEY:}

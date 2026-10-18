@@ -1,8 +1,44 @@
-# 生产/容器 profile：docker compose 启动时激活（SPRING_PROFILES_ACTIVE=prod）
-# 数据中间件主机名与各环境变量由 docker-compose.yml 注入（SPRING_DATASOURCE_URL 等），此处只放集群相关差异
+# 生产/容器：docker compose 激活（SPRING_PROFILES_ACTIVE=prod，自动包含 container）。
+# 中间件地址、JWT/存储/邮件等密钥见 application-container.yml。
 im:
   cluster:
+    # 分布式连接路由总开关
     enabled: true
+    # 连接路由表 TTL（秒）
+    route-ttl-seconds: 90
+    # 路由 TTL 续期节流间隔（秒）
+    heartbeat-renew-seconds: 30
+    # 默认设备类型（当前客户端为手机端）
+    default-device-type: mobile
+    # 节点存活标记 TTL（秒）
+    node-ttl-seconds: 30
+    # 节点心跳间隔（毫秒）
+    node-heartbeat-millis: 10000
+    # 优雅停机宽限期（毫秒）：先摘除节点存活标记，等待在途投递结束后再清理路由
+    node-shutdown-grace-millis: 5000
+    # 指标采样间隔（毫秒）
+    metrics-interval-millis: 15000
+    # Outbox 死信处置接口（运维用，默认关闭；仅 im.admin.user-ids 名单用户可访问）
+    outbox-admin:
+      enabled: ${OUTBOX_ADMIN_ENABLED:false}
+    # Outbox 每批领取数量
+    outbox-batch: 200
+    # 同一会话 Outbox 在途（未 DONE）条数上限（窗口内近似有序，保证吞吐）
+    outbox-conversation-window: 100
+    # Outbox 任务租约（秒）
+    outbox-lease-seconds: 30
+    # Outbox 轮询间隔（毫秒）
+    outbox-poll-millis: 500
+    # Outbox 最大重试次数（超过置 DEAD）
+    outbox-max-retry: 8
+    # Outbox 退避基数（毫秒）
+    outbox-backoff-base-millis: 1000
+    # Outbox 退避上限（毫秒）
+    outbox-backoff-max-millis: 60000
+    # 待处理积压告警阈值
+    outbox-backlog-alert-threshold: 1000
+    # 跨节点消费最大重消费次数（超过作死信：落离线兜底 + 告警）
+    consumer-max-reconsume: 5
 
 rocketmq:
   name-server: ${ROCKETMQ_NAMESRV:127.0.0.1:9876}

@@ -11,9 +11,17 @@ data:
   SPRING_DATASOURCE_USERNAME: "im_app"
   SPRING_DATA_REDIS_HOST: "redis"
   SPRING_DATA_REDIS_PORT: "6379"
+  # 对象存储（S3 兼容，示例为同集群 SeaweedFS；凭据走 Secret）
+  STORAGE_TYPE: "s3"
+  STORAGE_S3_ENDPOINT: "http://seaweedfs:8333"
+  STORAGE_S3_BUCKET: "im-files"
   ROCKETMQ_NAMESRV: "rmqnamesrv:9876"
   # 管理员用户名单（逗号分隔）：可访问 /actuator/metrics 与 /api/admin/outbox；留空则无管理员
   IM_ADMIN_USER_IDS: ""
+  # 应用层消息加密（默认关闭）；密钥走 Secret，轮换期附加 keyId 也在此
+  IM_CRYPTO_ENABLED: "false"
+  IM_CRYPTO_KEY_ID: "k1"
+  IM_CRYPTO_ROTATE_KEY_ID: ""
   # 音视频通话开关（false 时丢弃通话信令）
   IM_CALL_ENABLED: "true"
   # TURN（coturn）：客户端访问地址（如 turn:coturn.im.svc.cluster.local:3478 或公网入口），密钥走 Secret
