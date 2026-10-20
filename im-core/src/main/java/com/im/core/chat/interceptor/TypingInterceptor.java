@@ -2,10 +2,8 @@ package com.im.core.chat.interceptor;
 
 import com.elaina.chat.core.handler.HandlerContext;
 import com.elaina.chat.core.handler.MessageInterceptor;
-import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
-import com.im.core.chat.registry.MultiConnectionRegistry;
-import com.elaina.chat.transport.util.ConnectionUtils;
+import com.im.core.chat.router.RealtimeMessageRouter;
 import com.im.common.constant.ChatConstants;
 import lombok.RequiredArgsConstructor;
 
@@ -21,7 +19,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TypingInterceptor implements MessageInterceptor {
 
-    private final MultiConnectionRegistry connectionRegistry;
+    private final RealtimeMessageRouter realtimeRouter;
 
     @Override
     public boolean preSend(ChatMessage message, HandlerContext ctx, List<String> targets) {
@@ -35,9 +33,7 @@ public class TypingInterceptor implements MessageInterceptor {
             if (target.equals(message.getFrom())) {
                 continue;
             }
-            for (Connection conn : connectionRegistry.getConnections(target)) {
-                ConnectionUtils.writeSafely(conn, message);
-            }
+            realtimeRouter.sendToUser(target, message);
         }
         return false;
     }

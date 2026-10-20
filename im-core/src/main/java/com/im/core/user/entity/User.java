@@ -18,6 +18,12 @@ public class User {
     private String avatar;
     private String signature;
     private Integer status;
+    private Integer banned;
+    private String banReason;
+    private LocalDateTime bannedAt;
+    private Long bannedBy;
+    /** 封禁到期时间；null 表示永久封禁 */
+    private LocalDateTime banExpireAt;
     /** 是否已注销（软删除）0否1是 */
     private Integer deleted;
     private LocalDateTime deletedAt;

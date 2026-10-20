@@ -1,6 +1,7 @@
 package com.im.core.user.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.im.common.exception.BizException;
 import com.im.core.cache.CacheNames;
 import com.im.core.friend.entity.Friend;
@@ -169,5 +170,85 @@ public class UserService {
         return friendMapper.selectList(
             new LambdaQueryWrapper<Friend>().eq(Friend::getUserId, userId)
         ).stream().map(Friend::getFriendId).collect(Collectors.toList());
+    }
+
+    public List<User> listUsers(String keyword, int page, int size) {
+        String trimmed = keyword == null ? "" : keyword.trim();
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
+                .orderByDesc(User::getCreatedAt)
+                .last("LIMIT " + size + " OFFSET " + Math.max(0, page - 1) * size);
+        if (!trimmed.isEmpty()) {
+            String escaped = trimmed.replace("\\", "\\\\")
+                    .replace("%", "\\%").replace("_", "\\_");
+            wrapper.and(w -> w
+                    .apply("username LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped)
+                    .or()
+                    .apply("nickname LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped));
+        }
+        return userMapper.selectList(wrapper);
+    }
+
+    public long countUsers(String keyword) {
+        String trimmed = keyword == null ? "" : keyword.trim();
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        if (!trimmed.isEmpty()) {
+            String escaped = trimmed.replace("\\", "\\\\")
+                    .replace("%", "\\%").replace("_", "\\_");
+            wrapper.and(w -> w
+                    .apply("username LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped)
+                    .or()
+                    .apply("nickname LIKE CONCAT('%', {0}, '%') ESCAPE '\\\\'", escaped));
+        }
+        return userMapper.selectCount(wrapper);
+    }
+
+    public long countAll() {
+        return userMapper.selectCount(null);
+    }
+
+    public long countBanned() {
+        return userMapper.selectCount(new LambdaQueryWrapper<User>()
+                .eq(User::getBanned, 1)
+                .and(w -> w.isNull(User::getBanExpireAt)
+                        .or()
+                        .gt(User::getBanExpireAt, LocalDateTime.now())));
+    }
+
+    public long countCreatedToday() {
+        return userMapper.selectCount(new LambdaQueryWrapper<User>()
+                .ge(User::getCreatedAt, LocalDateTime.now().toLocalDate().atStartOfDay()));
+    }
+
+    public List<Long> activeUserIds() {
+        return userMapper.selectList(new LambdaQueryWrapper<User>()
+                        .ne(User::getDeleted, 1)
+                        .select(User::getId))
+                .stream().map(User::getId).toList();
+    }
+
+    public void setBanned(Long userId, boolean banned, String reason, Long adminId) {
+        setBanned(userId, banned, reason, adminId, null);
+    }
+
+    public void setBanned(Long userId, boolean banned, String reason, Long adminId, LocalDateTime banExpireAt) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BizException(404, "用户不存在");
+        }
+        userMapper.update(null, new LambdaUpdateWrapper<User>()
+                .eq(User::getId, userId)
+                .set(User::getBanned, banned ? 1 : 0)
+                .set(User::getBanReason, banned ? reason : null)
+                .set(User::getBannedAt, banned ? LocalDateTime.now() : null)
+                .set(User::getBannedBy, banned ? adminId : null)
+                .set(User::getBanExpireAt, banned ? banExpireAt : null));
+    }
+
+    /** 是否处于有效封禁期；已到期的封禁按未封禁处理 */
+    public boolean isBanned(User user) {
+        if (user == null || user.getBanned() == null || user.getBanned() != 1) {
+            return false;
+        }
+        return user.getBanExpireAt() == null || user.getBanExpireAt().isAfter(LocalDateTime.now());
     }
 }

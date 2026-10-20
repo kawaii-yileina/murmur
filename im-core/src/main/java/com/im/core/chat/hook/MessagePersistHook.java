@@ -1,16 +1,14 @@
 package com.im.core.chat.hook;
 
-import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.persistence.MessagePersistentHook;
-import com.im.core.chat.registry.MultiConnectionRegistry;
+import com.im.core.chat.router.RealtimeMessageRouter;
 import com.im.common.constant.ChatConstants;
 import com.im.core.outbox.service.OutboxService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -31,7 +29,7 @@ public class MessagePersistHook implements MessagePersistentHook {
     private static final Set<String> SKIP_TYPES = Set.of("SYSTEM", "HEARTBEAT");
 
     private final OutboxService outboxService;
-    private final MultiConnectionRegistry connectionRegistry;
+    private final RealtimeMessageRouter realtimeMessageRouter;
 
     @Override
     public void afterSend(ChatMessage msg, List<String> recipients, List<String> successList) {
@@ -75,22 +73,14 @@ public class MessagePersistHook implements MessagePersistentHook {
                     .group(false)
                     .content("")
                     .build();
-            ack.addHeader("ack", "true");
-            ack.addHeader("clientMsgId", clientMsgId);
-            ack.addHeader("serverMsgId", msg.getId() != null ? msg.getId() : "");
+            ack.addHeader(ChatConstants.HEADER_ACK, "true");
+            ack.addHeader(ChatConstants.HEADER_CLIENT_MSG_ID, clientMsgId);
+            ack.addHeader(ChatConstants.HEADER_SERVER_MSG_ID, msg.getId() != null ? msg.getId() : "");
             ack.addHeader(ChatConstants.HEADER_SEQ, String.valueOf(seq));
-            ack.addHeader("delivered", String.join(",", successList));
+            ack.addHeader(ChatConstants.HEADER_DELIVERED, String.join(",", successList));
 
-            Collection<Connection> conns = connectionRegistry.getConnections(msg.getFrom());
-            for (Connection c : conns) {
-                c.write(ack);
-            }
-            if (!conns.isEmpty()) {
-                log.debug("Sent ACK for clientMsgId={}, serverMsgId={} to {} device(s)",
-                        clientMsgId, msg.getId(), conns.size());
-            } else {
-                log.debug("Skip ACK, sender offline: user={}", msg.getFrom());
-            }
+            realtimeMessageRouter.sendToUser(msg.getFrom(), ack);
+            log.debug("Sent ACK for clientMsgId={}, serverMsgId={}", clientMsgId, msg.getId());
         } catch (Exception e) {
             log.error("Failed to send ACK for message from {}", msg.getFrom(), e);
         }

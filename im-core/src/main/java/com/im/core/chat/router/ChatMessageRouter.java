@@ -1,6 +1,5 @@
 package com.im.core.chat.router;
 
-import com.elaina.chat.core.gateway.MessageGateway;
 import com.elaina.chat.core.group.GroupMemberProvider;
 import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.router.MessageRouter;
@@ -8,7 +7,6 @@ import com.im.common.constant.ChatConstants;
 import com.im.common.utils.ThrowUtils;
 import com.im.core.friend.service.FriendService;
 import com.im.core.group.mapper.GroupMemberMapper;
-import com.im.core.group.service.GroupService;
 import com.im.core.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +36,7 @@ public class ChatMessageRouter implements MessageRouter {
                     .filter(id -> activeIds.contains(Long.parseLong(id)))
                     .toList();
         }
-        ThrowUtils.throwIf(!(ChatConstants.SYSTEM_USER.equals(message.getFrom()) || friendService.isFriend(Long.parseLong(message.getFrom()), Long.parseLong(message.getTo()))), 403, "禁止向非好友发消息");
+        ThrowUtils.throwIf(!(ChatConstants.SYSTEM_USER.equals(message.getFrom()) || String.valueOf(ChatConstants.SYSTEM_ACCOUNT_ID).equals(message.getFrom()) || friendService.isFriend(Long.parseLong(message.getFrom()), Long.parseLong(message.getTo()))), 403, "禁止向非好友发消息");
         // 对方已注销则禁止发送
         ThrowUtils.throwIf(!ChatConstants.SYSTEM_USER.equals(message.getFrom())
                 && userService.isDeleted(Long.parseLong(message.getTo())), 403, "对方账号已注销，无法发送消息");

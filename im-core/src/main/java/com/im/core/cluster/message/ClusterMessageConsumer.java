@@ -2,6 +2,7 @@ package com.im.core.cluster.message;
 
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
+import com.elaina.chat.transport.util.ConnectionUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.common.constant.ChatConstants;
 import com.im.core.chat.registry.MultiConnectionRegistry;
@@ -22,6 +23,9 @@ import org.apache.rocketmq.common.message.MessageExt;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 跨节点投递消费者：只订阅本节点 Tag（NODE_{nodeId}），收到后按设备回投本地连接。
@@ -109,6 +113,7 @@ public class ClusterMessageConsumer {
         }
         // 附带权威 seq（消费端投递路径）
         ChatMessage delivered = SeqHeaders.withSeq(payload.getMessage(), payload.getSeq());
+        boolean transientMessage = isTransient(delivered);
         for (ClusterTarget target : payload.getTargets()) {
             // 1) 检查是否已处理（命中则跳过；不写标记）
             if (dedupService.isProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId())) {
@@ -120,8 +125,12 @@ public class ClusterMessageConsumer {
             Connection connection = connectionRegistry.getConnection(target.getUserId(), target.getDeviceId());
             if (connection != null && connection.isActive()) {
                 connection.write(delivered);
-            } else if (!ChatConstants.isCallSignal(delivered.getType())) {
-                // 通话信令为瞬时消息：目标设备离线直接丢弃（不落离线，避免重连后幽灵来电）
+                if (isCloseAfterWrite(delivered)) {
+                    CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS)
+                            .execute(() -> ConnectionUtils.closeSafely(connection));
+                }
+            } else if (!transientMessage && !ChatConstants.isCallSignal(delivered.getType())) {
+                // 瞬时消息/通话信令目标离线直接丢弃，避免重连后收到过期事件
                 offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
                 log.debug("Target offline on this node, stored offline: user={}, device={}",
                         target.getUserId(), target.getDeviceId());
@@ -143,11 +152,12 @@ public class ClusterMessageConsumer {
                 return;
             }
             ChatMessage delivered = SeqHeaders.withSeq(payload.getMessage(), payload.getSeq());
+            boolean transientMessage = isTransient(delivered);
             for (ClusterTarget target : payload.getTargets()) {
                 if (dedupService.isProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId())) {
                     continue;
                 }
-                if (!ChatConstants.isCallSignal(delivered.getType())) {
+                if (!transientMessage && !ChatConstants.isCallSignal(delivered.getType())) {
                     offlineMessageService.storeOfflineMessage(target.getUserId(), target.getDeviceId(), delivered);
                 }
                 dedupService.markProcessed(payload.getMsgId(), target.getUserId(), target.getDeviceId());
@@ -155,5 +165,13 @@ public class ClusterMessageConsumer {
         } catch (Exception e) {
             log.error("Failed to persist dead-letter cluster message to offline: {}", e.getClass().getSimpleName());
         }
+    }
+
+    private boolean isTransient(ChatMessage message) {
+        return "true".equals(String.valueOf(message.getHeader(ChatConstants.HEADER_TRANSIENT)));
+    }
+
+    private boolean isCloseAfterWrite(ChatMessage message) {
+        return "true".equals(String.valueOf(message.getHeader(ChatConstants.HEADER_CLOSE_AFTER_WRITE)));
     }
 }

@@ -1,5 +1,6 @@
 package com.im.core.online.service;
 
+import com.im.core.chat.registry.MultiConnectionRegistry;
 import com.im.core.cluster.config.ClusterProperties;
 import com.im.core.cluster.route.RouteRegistry;
 import com.im.core.user.service.UserService;
@@ -21,6 +22,7 @@ public class OnlineStatusService {
     private final UserService userService;
     private final RouteRegistry routeRegistry;
     private final ClusterProperties clusterProperties;
+    private final MultiConnectionRegistry connectionRegistry;
 
     private static final String ONLINE_KEY_PREFIX = "im:online:";
     private static final long TTL_SECONDS = 60;
@@ -28,6 +30,17 @@ public class OnlineStatusService {
     public void userOnline(String userId) {
         redisTemplate.opsForValue().set(ONLINE_KEY_PREFIX + userId, "1", TTL_SECONDS, TimeUnit.SECONDS);
         userService.updateStatus(Long.parseLong(userId), 1);
+    }
+
+    /** 仅当用户在本节点和其他节点都没有在线设备时才置离线 */
+    public void userOfflineIfNoDevices(String userId) {
+        if (!connectionRegistry.getConnections(userId).isEmpty()) {
+            return;
+        }
+        if (clusterProperties.isEnabled() && routeRegistry.isOnline(userId)) {
+            return;
+        }
+        userOffline(userId);
     }
 
     public void userOffline(String userId) {

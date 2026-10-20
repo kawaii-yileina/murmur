@@ -88,7 +88,7 @@ im:
   cors:
     # 跨域来源白名单；* 仅用于同域开发（不发送跨域 Cookie）
     # Capacitor 的 Android http scheme 来源为 http://localhost，需显式加入白名单
-    allowed-origins: "${IM_CORS_ALLOWED_ORIGINS:http://localhost}"
+    allowed-origins: "${IM_CORS_ALLOWED_ORIGINS:http://localhost,http://localhost:5173,http://localhost:5174}"
   asr:
     # 语音转文字（本地 ASR HTTP 服务），默认关闭
     enabled: false

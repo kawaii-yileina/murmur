@@ -7,7 +7,7 @@ import com.elaina.chat.core.message.ChatMessage;
 import com.elaina.chat.core.registry.HandlerRegistry;
 import com.elaina.chat.core.registry.InterceptorRegistry;
 import com.im.common.constant.ChatConstants;
-import com.im.core.chat.registry.MultiConnectionRegistry;
+import com.im.core.chat.router.RealtimeMessageRouter;
 import com.im.core.chat.handler.HeartbeatHandler;
 import com.im.core.chat.handler.IdentityBindingHandler;
 import com.im.core.chat.handler.InboundMessageGuardHandler;
@@ -37,7 +37,7 @@ public class ChatConfiguration implements ChatConfigurer {
     private final InboundMessageGuardHandler inboundMessageGuardHandler;
     private final IdentityBindingHandler identityBindingHandler;
     private final StringRedisTemplate redisTemplate;
-    private final MultiConnectionRegistry connectionRegistry;
+    private final RealtimeMessageRouter realtimeMessageRouter;
     private final CallService callService;
     private final CallSignalRouter callSignalRouter;
 
@@ -59,7 +59,7 @@ public class ChatConfiguration implements ChatConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new TypingInterceptor(connectionRegistry));
+        registry.addInterceptor(new TypingInterceptor(realtimeMessageRouter));
         if (callEnabled) {
             registry.addInterceptor(new CallSignalingInterceptor(callService, callSignalRouter));
         } else {

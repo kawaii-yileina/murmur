@@ -1,9 +1,6 @@
 package com.im.core.group.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.elaina.chat.core.message.ChatMessage;
-import com.elaina.chat.core.gateway.MessageGateway;
-import com.im.common.constant.ChatConstants;
 import com.im.common.enums.SystemEvent;
 import com.im.common.exception.BizException;
 import com.im.core.cache.CacheNames;
@@ -11,6 +8,9 @@ import com.im.core.group.entity.Group;
 import com.im.core.group.entity.GroupMember;
 import com.im.core.group.mapper.GroupMapper;
 import com.im.core.group.mapper.GroupMemberMapper;
+import com.im.core.message.service.SystemMessageService;
+import com.im.core.user.entity.User;
+import com.im.core.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +31,8 @@ public class GroupService {
 
     private final GroupMapper groupMapper;
     private final GroupMemberMapper groupMemberMapper;
-    private final MessageGateway messageGateway;
+    private final SystemMessageService systemMessageService;
+    private final UserService userService;
 
     @Value("${im.group.max-admins:3}")
     private int maxAdmins;
@@ -63,7 +64,10 @@ public class GroupService {
         member.setJoinedAt(LocalDateTime.now());
         groupMemberMapper.insert(member);
 
-        sendGroupNotification(groupId, SystemEvent.GROUP_ADD, String.valueOf(groupId), String.valueOf(userId));
+        Group group = findById(groupId);
+        String text = "「" + displayName(userId) + "」加入群聊「" + groupName(group, groupId) + "」";
+        sendGroupNotification(groupId, SystemEvent.GROUP_ADD, text,
+                String.valueOf(groupId), String.valueOf(userId));
     }
 
     @Transactional
@@ -99,6 +103,7 @@ public class GroupService {
                 .eq(GroupMember::getUserId, userId));
 
         sendGroupNotificationTo(memberIds, SystemEvent.GROUP_KICK,
+                "「" + displayName(userId) + "」被移出群聊「" + groupName(group, groupId) + "」",
                 String.valueOf(groupId), String.valueOf(userId), String.valueOf(operatorId));
     }
 
@@ -132,6 +137,7 @@ public class GroupService {
 
         updateMemberRole(groupId, userId, 1);
         sendGroupNotification(groupId, SystemEvent.GROUP_ADMIN_SET,
+                "「" + displayName(userId) + "」被设为群聊「" + groupName(group, groupId) + "」管理员",
                 String.valueOf(groupId), String.valueOf(userId), String.valueOf(operatorId));
     }
 
@@ -156,6 +162,7 @@ public class GroupService {
 
         updateMemberRole(groupId, userId, 0);
         sendGroupNotification(groupId, SystemEvent.GROUP_ADMIN_UNSET,
+                "「" + displayName(userId) + "」被取消群聊「" + groupName(group, groupId) + "」管理员",
                 String.valueOf(groupId), String.valueOf(userId), String.valueOf(operatorId));
     }
 
@@ -173,6 +180,7 @@ public class GroupService {
                 .eq(GroupMember::getUserId, userId));
 
         sendGroupNotification(groupId, SystemEvent.GROUP_QUIT,
+                "「" + displayName(userId) + "」退出群聊「" + groupName(group, groupId) + "」",
                 String.valueOf(groupId), String.valueOf(userId));
     }
 
@@ -235,6 +243,7 @@ public class GroupService {
         groupMapper.updateById(group);
 
         sendGroupNotification(groupId, SystemEvent.GROUP_RENAME,
+                "群聊「" + groupId + "」已改名为「" + name + "」",
                 String.valueOf(groupId), name, String.valueOf(operatorId));
     }
 
@@ -270,6 +279,8 @@ public class GroupService {
         updateMemberRole(groupId, newOwnerId, 2);
 
         sendGroupNotification(groupId, SystemEvent.GROUP_TRANSFER,
+                "「" + displayName(newOwnerId) + "」成为群聊「"
+                        + groupName(existing, groupId) + "」的新群主",
                 String.valueOf(groupId), String.valueOf(newOwnerId), String.valueOf(currentOwnerId));
     }
 
@@ -293,26 +304,32 @@ public class GroupService {
     /**
      * 向群内所有成员发送 SYSTEM 通知（含操作者，便于多端同步刷新）。
      */
-    private void sendGroupNotification(Long groupId, SystemEvent event, String... args) {
-        sendGroupNotificationTo(getMemberIds(groupId), event, args);
+    private void sendGroupNotification(Long groupId, SystemEvent event, String text, String... args) {
+        sendGroupNotificationTo(getMemberIds(groupId), event, text, args);
     }
 
-    private void sendGroupNotificationTo(List<String> memberIds, SystemEvent event, String... args) {
-        String content = event.format(args);
+    private void sendGroupNotificationTo(List<String> memberIds, SystemEvent event, String text, String... args) {
+        String eventContent = event.format(args);
         for (String memberId : memberIds) {
             try {
-                ChatMessage msg = ChatMessage.builder()
-                        .type(ChatConstants.SYSTEM_USER)
-                        .from(ChatConstants.SYSTEM_USER)
-                        .to(memberId)
-                        .group(false)
-                        .content(content)
-                        .build();
-                // 三参数：不走持久化拦截器，SYSTEM通知不应写入 t_message/t_conversation
-                messageGateway.sendToUser(memberId, msg, false);
+                systemMessageService.sendNotification(Long.parseLong(memberId), text, eventContent);
             } catch (Exception e) {
                 log.error("Failed to send {} notification to {}: {}", event.getType(), memberId, e.getMessage());
             }
         }
+    }
+
+    private String groupName(Group group, Long groupId) {
+        return group != null && group.getName() != null && !group.getName().isBlank()
+                ? group.getName() : String.valueOf(groupId);
+    }
+
+    private String displayName(Long userId) {
+        User user = userService.findById(userId);
+        if (user == null) {
+            return String.valueOf(userId);
+        }
+        return user.getNickname() != null && !user.getNickname().isBlank()
+                ? user.getNickname() : user.getUsername();
     }
 }

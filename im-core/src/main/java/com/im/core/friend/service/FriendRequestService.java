@@ -1,15 +1,13 @@
 package com.im.core.friend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.elaina.chat.core.message.ChatMessage;
-import com.elaina.chat.core.gateway.MessageGateway;
-import com.im.common.constant.ChatConstants;
 import com.im.common.enums.SystemEvent;
 import com.im.common.exception.BizException;
 import com.im.core.friend.entity.Friend;
 import com.im.core.friend.entity.FriendRequest;
 import com.im.core.friend.mapper.FriendMapper;
 import com.im.core.friend.mapper.FriendRequestMapper;
+import com.im.core.message.service.SystemMessageService;
 import com.im.core.user.entity.User;
 import com.im.core.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +27,7 @@ public class FriendRequestService {
     private final FriendRequestMapper friendRequestMapper;
     private final FriendMapper friendMapper;
     private final UserService userService;
-    private final MessageGateway messageGateway;
+    private final SystemMessageService systemMessageService;
     private final FriendCacheEvictor friendCacheEvictor;
 
     public FriendRequest sendRequest(Long fromId, Long toId) {
@@ -187,16 +185,29 @@ public class FriendRequestService {
 
     private void sendSystemNotification(String targetUserId, SystemEvent event, String... args) {
         try {
-            ChatMessage msg = ChatMessage.builder()
-                    .type(ChatConstants.SYSTEM_USER)
-                    .from(ChatConstants.SYSTEM_USER)
-                    .to(targetUserId)
-                    .group(false)
-                    .content(event.format(args))
-                    .build();
-            messageGateway.sendToUser(targetUserId, msg, false);
+            String eventContent = event.format(args);
+            String text = switch (event) {
+                case FRIEND_REQUEST -> "「" + displayName(args[0]) + "」请求添加你为好友";
+                case FRIEND_ACCEPT -> "你和「" + displayName(args[0]) + "」已成为好友";
+                case FRIEND_REJECT -> "「" + displayName(args[0]) + "」拒绝了你的好友申请";
+                default -> eventContent;
+            };
+            systemMessageService.sendNotification(Long.parseLong(targetUserId), text, eventContent);
         } catch (Exception e) {
             log.error("Failed to send {} notification to {}: {}", event.getType(), targetUserId, e.getMessage());
         }
+    }
+
+    private String displayName(String userId) {
+        try {
+            User user = userService.findById(Long.parseLong(userId));
+            if (user != null) {
+                return user.getNickname() != null && !user.getNickname().isBlank()
+                        ? user.getNickname() : user.getUsername();
+            }
+        } catch (Exception ignored) {
+            // 回退到 id，避免通知失败
+        }
+        return userId;
     }
 }

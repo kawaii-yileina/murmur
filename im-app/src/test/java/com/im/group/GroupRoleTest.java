@@ -1,12 +1,13 @@
 package com.im.group;
 
-import com.elaina.chat.core.gateway.MessageGateway;
 import com.im.common.exception.BizException;
 import com.im.core.group.entity.Group;
 import com.im.core.group.entity.GroupMember;
 import com.im.core.group.mapper.GroupMapper;
 import com.im.core.group.mapper.GroupMemberMapper;
 import com.im.core.group.service.GroupService;
+import com.im.core.message.service.SystemNotificationService;
+import com.im.core.user.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -31,7 +32,8 @@ class GroupRoleTest {
 
     private GroupMapper groupMapper;
     private GroupMemberMapper memberMapper;
-    private MessageGateway gateway;
+    private SystemNotificationService systemNotificationService;
+    private UserService userService;
     private GroupService service;
     private Group group;
 
@@ -39,8 +41,9 @@ class GroupRoleTest {
     void setUp() {
         groupMapper = mock(GroupMapper.class);
         memberMapper = mock(GroupMemberMapper.class);
-        gateway = mock(MessageGateway.class);
-        service = new GroupService(groupMapper, memberMapper, gateway);
+        systemNotificationService = mock(SystemNotificationService.class);
+        userService = mock(UserService.class);
+        service = new GroupService(groupMapper, memberMapper, systemNotificationService, userService);
         ReflectionTestUtils.setField(service, "maxAdmins", 3);
 
         group = new Group();
@@ -173,7 +176,7 @@ class GroupRoleTest {
         service.setAdmin(GROUP_ID, 2L, 1L);
         verify(memberMapper, never()).update(any(GroupMember.class), any());
         verify(memberMapper, never()).selectCount(any());
-        verifyNoInteractions(gateway);
+        verifyNoInteractions(systemNotificationService);
     }
 
     @Test

@@ -62,7 +62,7 @@ public class AuthController {
                 String token = authHeader.substring(7);
                 String userId = jwtTokenProvider.getUserIdFromExpiredToken(token);
                 if (userId != null) {
-                    onlineStatusService.userOffline(userId);
+                    onlineStatusService.userOfflineIfNoDevices(userId);
                 }
             } catch (Exception ignored) {
             }
@@ -216,9 +216,13 @@ public class AuthController {
         if (userId == null) {
             throw new BizException(401, "登录状态已失效，请重新登录");
         }
+        User user = userService.findById(Long.parseLong(userId));
+        if (user == null) {
+            throw new BizException(401, "登录状态已失效，请重新登录");
+        }
+        ensureActive(user);
         String newRefreshToken = refreshTokenService.rotate(request.getRefreshToken(), userId);
 
-        User user = userService.findById(Long.parseLong(userId));
         Map<String, Object> data = new HashMap<>();
         data.put("token", jwtTokenProvider.generateToken(userId));
         data.put("refreshToken", newRefreshToken);
@@ -251,6 +255,11 @@ public class AuthController {
     public Result<Map<String, Object>> wsTicket(@RequestAttribute("userId") String userId,
                                                 @RequestHeader(value = "Authorization", required = false) String authHeader,
                                                 HttpServletResponse response) {
+        User user = userService.findById(Long.parseLong(userId));
+        if (user == null) {
+            throw new BizException(401, "登录状态已失效，请重新登录");
+        }
+        ensureActive(user);
         // 每次建立/重建 WS 连接时顺带续发文件 Cookie，避免旧会话或 Cookie 过期后图片请求 401
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             fileTokenCookie.attach(response, authHeader.substring(7));
@@ -365,10 +374,19 @@ public class AuthController {
         private String password;
     }
 
-    /** 已注销账号禁止登录/找回密码 */
+    /** 已注销或封禁账号禁止登录/找回密码 */
     private void ensureActive(User user) {
+        if (user == null) {
+            throw new BizException(401, "登录状态已失效，请重新登录");
+        }
         if (user.getDeleted() != null && user.getDeleted() == 1) {
             throw new BizException(403, "账号已注销");
+        }
+        if (userService.isBanned(user)) {
+            String message = user.getBanExpireAt() == null
+                    ? "账号已被永久封禁"
+                    : "账号已被封禁至 " + user.getBanExpireAt();
+            throw new BizException(403, message);
         }
     }
 

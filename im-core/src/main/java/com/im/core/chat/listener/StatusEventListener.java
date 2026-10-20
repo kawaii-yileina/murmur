@@ -3,9 +3,9 @@ package com.im.core.chat.listener;
 import com.elaina.chat.core.event.ChatEventListener;
 import com.elaina.chat.core.connection.Connection;
 import com.elaina.chat.core.message.ChatMessage;
-import com.elaina.chat.core.gateway.MessageGateway;
 import com.elaina.chat.transport.util.ConnectionUtils;
 import com.im.core.chat.registry.MultiConnectionRegistry;
+import com.im.core.chat.router.RealtimeMessageRouter;
 import com.im.common.utils.JwtUtils;
 import com.im.common.constant.ChatConstants;
 import com.im.core.call.CallService;
@@ -38,7 +38,7 @@ public class StatusEventListener implements ChatEventListener {
     private final OnlineStatusService onlineStatusService;
     private final OfflineMessageService offlineMessageService;
     private final MultiConnectionRegistry connectionRegistry;
-    private final MessageGateway messageGateway;
+    private final RealtimeMessageRouter realtimeMessageRouter;
     private final UserService userService;
     private final RouteRegistry routeRegistry;
     private final ClusterProperties clusterProperties;
@@ -60,49 +60,57 @@ public class StatusEventListener implements ChatEventListener {
     @Override
     public void onAuthenticated(String userId, Connection connection) {
         log.info("User authenticated: {}", userId);
+        connection.attributes().put(ChatConstants.ATTR_AUTHED_USER_ID, userId);
         onlineStatusService.userOnline(userId);
-        registerRoute(userId, connection);
+        // 顶号判断必须在登记新路由之前完成，否则同一 deviceId 的旧路由已被覆盖
         handleDeviceLogin(userId, connection);
+        registerRoute(userId, connection);
         notifyFriends(userId, "online:" + userId);
         sendOfflineMessages(userId, connection);
     }
 
     /**
      * 同类型设备顶号：先通知旧连接，再关闭；不同类型设备不顶号，改为系统会话提醒。
-     * 设备类型只分 mobile / desktop。
+     * 设备类型只分 mobile / desktop。集群模式下同时检查本节点连接和其他节点路由。
      */
     private void handleDeviceLogin(String userId, Connection connection) {
         String newType = ConnAttributes.normalizedDeviceType(connection);
-        List<Connection> others = connectionRegistry.getConnections(userId).stream()
-                .filter(other -> other != null && !other.id().equals(connection.id()))
-                .toList();
-        if (others.isEmpty()) {
-            return;
+        boolean hasOtherType = false;
+        java.util.Set<String> kickedDevices = new java.util.HashSet<>();
+
+        for (Connection other : connectionRegistry.getConnections(userId)) {
+            if (other == null || other.id().equals(connection.id())) {
+                continue;
+            }
+            String type = ConnAttributes.normalizedDeviceType(other);
+            if (newType.equals(type)) {
+                kickLocal(userId, other, newType);
+                kickedDevices.add(ConnAttributes.deviceId(other));
+            } else {
+                hasOtherType = true;
+            }
         }
 
-        List<Connection> sameType = others.stream()
-                .filter(other -> newType.equals(ConnAttributes.normalizedDeviceType(other)))
-                .toList();
-        boolean hasOtherType = others.stream()
-                .anyMatch(other -> !newType.equals(ConnAttributes.normalizedDeviceType(other)));
-
-        for (Connection old : sameType) {
+        if (clusterProperties.isEnabled()) {
             try {
-                ChatMessage kicked = ChatMessage.builder()
-                        .type(ChatConstants.MSG_TYPE_SYSTEM)
-                        .from(ChatConstants.SYSTEM_USER)
-                        .to(userId)
-                        .group(false)
-                        .content(com.im.common.enums.SystemEvent.SESSION_KICKED.format())
-                        .build();
-                ConnectionUtils.writeSafely(old, kicked);
-                CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS)
-                        .execute(() -> ConnectionUtils.closeSafely(old));
-                log.info("Kick same-type device: user={}, type={}, oldConn={}",
-                        userId, newType, old.id());
+                for (String deviceId : routeRegistry.deviceIds(userId)) {
+                    if (kickedDevices.contains(deviceId)) {
+                        continue;
+                    }
+                    com.im.core.cluster.route.RouteEntry entry = routeRegistry.find(userId, deviceId);
+                    if (entry == null || connection.id().equals(entry.getConnId())) {
+                        continue;
+                    }
+                    String type = ConnAttributes.normalizedDeviceType(entry.getDeviceType());
+                    if (newType.equals(type)) {
+                        realtimeMessageRouter.kickDevice(userId, deviceId, kickMessage(userId));
+                        kickedDevices.add(deviceId);
+                    } else {
+                        hasOtherType = true;
+                    }
+                }
             } catch (Exception e) {
-                log.warn("Failed to kick old device for user {}: {}", userId, e.getMessage());
-                ConnectionUtils.closeSafely(old);
+                log.warn("Failed to inspect cluster device routes for user {}: {}", userId, e.getMessage());
             }
         }
 
@@ -113,6 +121,28 @@ public class StatusEventListener implements ChatEventListener {
                     "你的账号于 " + time + " 在一台新设备（" + platform
                             + "）登录。如非本人操作，请及时修改密码。");
         }
+    }
+
+    private void kickLocal(String userId, Connection old, String type) {
+        try {
+            ConnectionUtils.writeSafely(old, kickMessage(userId));
+            CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS)
+                    .execute(() -> ConnectionUtils.closeSafely(old));
+            log.info("Kick same-type device: user={}, type={}, oldConn={}", userId, type, old.id());
+        } catch (Exception e) {
+            log.warn("Failed to kick old device for user {}: {}", userId, e.getMessage());
+            ConnectionUtils.closeSafely(old);
+        }
+    }
+
+    private ChatMessage kickMessage(String userId) {
+        return ChatMessage.builder()
+                .type(ChatConstants.MSG_TYPE_SYSTEM)
+                .from(ChatConstants.SYSTEM_USER)
+                .to(userId)
+                .group(false)
+                .content(com.im.common.enums.SystemEvent.SESSION_KICKED.format())
+                .build();
     }
 
     @Override
@@ -171,6 +201,10 @@ public class StatusEventListener implements ChatEventListener {
 
     /** 解析连接所属用户；access token 过期时回退解析过期 token，尽量拿到 userId 以清理路由/在线态 */
     private String resolveUserId(Connection connection) {
+        Object authed = connection.attributes().get(ChatConstants.ATTR_AUTHED_USER_ID);
+        if (authed != null && !String.valueOf(authed).isBlank()) {
+            return String.valueOf(authed);
+        }
         String token = (String) connection.attributes().get(tokenName);
         try {
             String userId = JwtUtils.getUserIdFromToken(token, jwtSecret);
@@ -233,11 +267,12 @@ public class StatusEventListener implements ChatEventListener {
         try {
             List<Long> friendIds = userService.getFriendIds(Long.parseLong(userId));
             ChatMessage statusMsg = ChatMessage.builder()
-                    .type("SYSTEM")
+                    .type(ChatConstants.MSG_TYPE_SYSTEM)
+                    .from(ChatConstants.SYSTEM_USER)
                     .content(content)
                     .build();
             for (Long friendId : friendIds) {
-                messageGateway.sendToUser(String.valueOf(friendId), statusMsg);
+                realtimeMessageRouter.sendToUser(String.valueOf(friendId), statusMsg);
             }
         } catch (Exception e) {
             log.error("Failed to notify friends for user {}", userId, e);

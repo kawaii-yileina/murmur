@@ -50,6 +50,10 @@ public final class ChatConstants {
     public static final String HEADER_SERVER_MSG_ID = "serverMsgId";
     /** 已送达目标列表（仅回执使用，不落库） */
     public static final String HEADER_DELIVERED = "delivered";
+    /** 瞬时消息标记：跨节点投递时目标离线则丢弃，不写离线队列 */
+    public static final String HEADER_TRANSIENT = "transient";
+    /** 写完后关闭连接（顶号/封禁控制事件） */
+    public static final String HEADER_CLOSE_AFTER_WRITE = "closeAfterWrite";
     /**
      * 会话权威序号：持久化投递路径（Outbox 本地投递/跨节点消费/离线补投）在消息 headers 附带，
      * 供客户端按 seq 排序；仅下行附带，不落库（t_message.seq 为独立列）。

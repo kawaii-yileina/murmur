@@ -31,8 +31,11 @@ public final class ConnAttributes {
 
     /** 业务只区分手机和电脑：安卓/iOS 都归一为 mobile，其余归一为 desktop */
     public static String normalizedDeviceType(Connection connection) {
-        String type = deviceType(connection);
-        if (type == null) {
+        return normalizedDeviceType(deviceType(connection));
+    }
+
+    public static String normalizedDeviceType(String type) {
+        if (type == null || type.isBlank()) {
             return "desktop";
         }
         String normalized = type.toLowerCase();

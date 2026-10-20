@@ -32,6 +32,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final AdminAuthenticationFilter adminAuthenticationFilter;
 
     /** 逗号分隔；* 仅用于同域开发，跨域 Cookie 必须配置明确来源并开启 credentials */
     @Value("${im.cors.allowed-origins:*}")
@@ -58,9 +59,12 @@ public class SecurityConfig {
                     "/api/auth/refresh",
                     "/api/auth/send-code",
                     "/api/auth/reset-password",
-                    "/api/auth/logout"
+                    "/api/auth/logout",
+                    "/api/admin/auth/login"
                 ).permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                .requestMatchers("/api/admin/outbox/**").hasRole("ADMIN")
+                .requestMatchers("/api/admin/**").hasRole("ADMIN_CONSOLE")
                 // 容器探针：健康检查匿名放行（不暴露细节）；指标仍仅管理员
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN")
@@ -69,7 +73,8 @@ public class SecurityConfig {
             // 未认证返回 401（默认是 403），前端静默续期依赖 401 触发
             .exceptionHandling(ex -> ex.authenticationEntryPoint(
                 (request, response, authException) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(adminAuthenticationFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

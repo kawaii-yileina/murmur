@@ -38,6 +38,9 @@ public enum SystemEvent {
     // 同类型设备顶号
     SESSION_KICKED("session_kicked"),
 
+    // 管理员封禁账号
+    ACCOUNT_BANNED("account_banned"),
+
     // 发送频率限流
     RATE_LIMITED("rate_limited");
 
