@@ -19,7 +19,7 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - im-mysql-data:/var/lib/mysql
-      - ../../sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
